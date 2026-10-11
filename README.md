@@ -12,6 +12,7 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `config/feeds.conf.extra` | 双 Feed 定义（CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
 | `config/seed.config` | `.config` 构建种子（x86_64 起步，最小集） |
 | `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4） |
+| `scripts/test-in-docker.sh` | 本地镜像 Docker 快速预览：导入 rootfs 起最小服务链，浏览器看真实 LuCI（主题/Dashboard 视觉验证用；不含内核/网络/防火墙——那些走 QEMU） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发） |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
