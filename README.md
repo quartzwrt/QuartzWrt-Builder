@@ -13,13 +13,14 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `config/seed.config` | `.config` 构建种子（x86_64 起步，最小集） |
 | `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
-| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线 |
+| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发） |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
 
-## CI 构建
+## CI 构建（仅手动触发）
 
-- 触发方式：push 到 `main`、PR、每周日 02:00 (UTC+8) 定时、手动 `workflow_dispatch`。
-- 首次全量构建约 2–6 小时；GitHub Actions 默认磁盘不足，流水线已用 `maximize-build-space` 扩容。
+- **触发方式：仅手动 `workflow_dispatch`**，不随 push / PR 自动运行；日常构建验证走本地 `scripts/build-local.sh`（docs/TDD.md §7.4）。
+- 用途：发布前 / 基础设施重大变更后的干净环境权威验收。
+- 单次全量构建约 2–6 小时；GitHub Actions 默认磁盘不足，流水线已用 `maximize-build-space` 扩容。
 - 公开仓库免费额度无限；若仓库为私有，注意月度 CI 分钟数限制。
 
 手动触发：
@@ -46,7 +47,7 @@ gh workflow run build.yml
 git ls-remote https://github.com/immortalwrt/immortalwrt.git refs/heads/openwrt-25.12
 ```
 
-改后触发一次全量 CI 验证。
+改后手动触发一次全量 CI 验证（`gh workflow run build.yml`）。
 
 ## 本地构建（开发迭代）
 

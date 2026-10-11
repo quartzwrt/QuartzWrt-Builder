@@ -272,7 +272,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 
 ### 7.1 自动化构建流水线 (GitHub Actions)
 
-CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，禁止将本地构建产物作为发布件分发。本地构建用于开发迭代与调试（见 §7.4），不替代 CI。
+CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，禁止将本地构建产物作为发布件分发。本地构建用于开发迭代与调试（见 §7.4），不替代 CI。**触发策略（2026-10-12 起）：CI 仅手动触发（`workflow_dispatch`），不随 push/PR 自动运行；定时构建取消（基座与双 Feed 已锁定 SHA，计划构建只会重复同一状态）；日常构建验证走本地 `scripts/build-local.sh`，CI 保留给发布前 / 基础设施重大变更后的权威验收。**
 
 **CI 核心 Pipeline:**
 1.  **Checkout**: 拉取 `QuartzWrt-Builder` 与 ImmortalWrt 基座（锁定分支 + 精确 commit，见 §4.2）。
@@ -281,7 +281,7 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 4.  **Duplicate Check**: 同名包扫描（见 §4.5），发现冲突即失败。
 5.  **Patch Apply**: 应用必要的 Quilt 补丁（如有）。
 6.  **Config & Build**: 加载 `.config` -> `make defconfig` -> `make -j$(nproc)`。
-7.  **Sign & Release**: 用 usign 对 `.ipk` 与固件镜像签名，打包上传至 GitHub Releases。
+7.  **Sign & Release**: 按 §7.3 的 apk 签名体系对 `.apk` 与固件镜像签名，打包上传至 GitHub Releases。
 
 ### 7.2 编译优化与缓存
 
@@ -319,6 +319,7 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 | 包管理器 | apk | 基座定为 ImmortalWrt 25.12（apk 体系），见 §7.3 |
 | 签名体系 | apk RSA (key-build) | 见 §7.3 |
 | 本地构建 | 方案一：脚本复刻 CI 步骤（`scripts/build-local.sh`），定位于开发迭代 | 正式产物仍以 CI 为准，见 §7.1、§7.4 |
+| CI 触发 | 仅手动 `workflow_dispatch`（不随 push/PR 自动运行） | 日常验证走本地构建；CI 用于发布前/重大变更后的权威验收，见 §7.1 |
 | UI 隔离 | Tailwind utilities 采用 `qz:` 前缀（v4 变体语法）+ `source(none)` 精确扫描；主题 cascade.css 入层（层序 theme < base < qz-theme < components < utilities），preflight 归 base 并辅以显式中和规则 | 2026-10-12 实测通过（WP-2 spike，`dev/spike/tailwind/RESULTS.md`）：生产配置零污染且 utilities 正常生效 |
 
 ### 待决事项

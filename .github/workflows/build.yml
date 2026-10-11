@@ -1,18 +1,11 @@
 name: Build QuartzWrt Firmware
 
+# 触发策略（2026-10-12 起）：仅手动触发（workflow_dispatch），不随 push / PR 自动运行。
+# 日常构建验证走本地 scripts/build-local.sh（docs/TDD.md §7.4）；本工作流用于
+# 发布前 / 基础设施重大变更后的干净环境权威验收。
+# 定时构建已取消：基座与双 Feed 均已锁定 SHA，计划构建只会重复同一状态；
+# 上游版本跟踪将另设轻量任务（待建）。
 on:
-  push:
-    branches: [main]
-    paths-ignore: &docs-only
-      - 'docs/**'
-      - '**/*.md'
-      - 'LICENSE'
-      - '.gitignore'
-  pull_request:
-    paths-ignore: *docs-only
-  schedule:
-    # 每周日 02:00 (UTC+8) 定期构建，验证上游滚动情况
-    - cron: '0 18 * * 6'
   workflow_dispatch:
 
 env:
