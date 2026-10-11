@@ -319,12 +319,12 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 | 包管理器 | apk | 基座定为 ImmortalWrt 25.12（apk 体系），见 §7.3 |
 | 签名体系 | apk RSA (key-build) | 见 §7.3 |
 | 本地构建 | 方案一：脚本复刻 CI 步骤（`scripts/build-local.sh`），定位于开发迭代 | 正式产物仍以 CI 为准，见 §7.1、§7.4 |
+| UI 隔离 | Tailwind utilities 采用 `qz:` 前缀（v4 变体语法）+ `source(none)` 精确扫描；主题 cascade.css 入层（层序 theme < base < qz-theme < components < utilities），preflight 归 base 并辅以显式中和规则 | 2026-10-12 实测通过（WP-2 spike，`dev/spike/tailwind/RESULTS.md`）：生产配置零污染且 utilities 正常生效 |
 
 ### 待决事项
 
 | 模块 | 待决事项 (Open Questions) | 建议方案 / 思考方向 |
 | :--- | :--- | :--- |
-| **UI 隔离** | Tailwind CSS 如何避免污染原生 LuCI 页面？ | 使用 Tailwind `prefix: 'qz-'`，或通过 PostCSS 插件为所有自定义类名添加命名空间。 |
 | **Daemon** | `quartz-daemon` 使用 Go 还是 Rust？ | MVP 阶段建议先用 **Go**（开发效率高，JSON 处理方便），后期若遇 ARM 设备内存瓶颈再考虑 Rust 重写。 |
 | **App 推送** | 路由器在内网，如何向 App 推送断网/告警消息？ | 固件端预留 Webhook 接口，集成 Bark / PushDeer / Telegram Bot 等第三方推送服务。 |
 | **OTA 通道** | ASU 还是自定义升级服务？ | 优先评估 ASU（社区成熟方案）；自定义方案须完整实现签名校验。 |
