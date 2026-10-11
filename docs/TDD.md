@@ -184,9 +184,10 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 
 *   **Feed 锁定**：`feeds.conf` 支持写 commit SHA 代替分支名；CI 在基座默认 feeds **末尾追加**（不替换）两个 Feed 的精确 commit：
     ```conf
-    src-git quartz https://github.com/YourOrg/QuartzWrt-Packages.git;<commit-sha>
-    src-git thirdparty https://github.com/YourOrg/QuartzWrt-ThirdParty.git;<commit-sha>
+    src-git quartz https://github.com/YourOrg/QuartzWrt-Packages.git^<commit-sha>
+    src-git thirdparty https://github.com/YourOrg/QuartzWrt-ThirdParty.git^<commit-sha>
     ```
+    > **语法注意（2026-10-12 实测）**：`;` 后跟的是**分支名**，`^` 后跟的才是 **commit SHA**（`scripts/feeds` 源码用 `split(/;/)` 与 `split(/\^/)` 区分）。写成 `;`+SHA 会被当作分支执行 `git clone --branch <sha>`，在 GitHub 上报 `Remote branch ... not found` 直接失败。
 *   **基座锁定**：`QuartzWrt-Builder` 必须记录所用 ImmortalWrt 的**分支 + 精确 commit**，不随上游滚动。
 *   **Bump 机制**：定时 CI job（建议每周）检查两个 Feed 与基座的上游更新，自动提交 bump PR，CI 通过后合并——参考 Dependabot 的运作方式。
 
