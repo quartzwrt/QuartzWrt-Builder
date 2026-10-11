@@ -96,6 +96,8 @@ QuartzWrt-ThirdParty/
 
 > **引入方式约定**：`thirdparty` Feed 中的每个包只放**薄 Makefile**（声明 `PKG_SOURCE_URL` + 锁定版本 + 校验和），源码由 OpenWrt 构建系统下载。**禁止**使用 Git Submodule 引入上游仓库（feeds 本身就是 git 仓库，嵌套 submodule 不会随 `scripts/feeds update` 更新）；**禁止** Fork 上游仓库改源码（违反“不可变上游”原则）。确无 Tag 可锁且必须 Fork 的特殊情况，须在 PR 中详细说明理由并经架构师 Review。
 
+> **同名包与基座遮蔽（2026-10-12 实践）**：feeds 同名包**先列者胜**，基座默认 feeds 在 `feeds.conf` 中位于双 Feed 之前——基座已提供的包（如 ImmortalWrt luci feed 自带的 `luci-app-openclash`、`luci-app-dockerman`）会**遮蔽** thirdparty 的同名包。因此：基座/quartz feed 已提供且满足需求的包**一律不收录**，由 `quartz-defaults` 直接 `DEPENDS`；仅收录基座没有的包（如 `luci-lib-docker`）。不能靠 feeds 顺序覆盖基座。
+
 ### 3.2 元数据包 (Meta-Package) 机制
 
 `quartz-defaults` 作为总入口，统一声明对两个 Feed 中软件包的依赖：

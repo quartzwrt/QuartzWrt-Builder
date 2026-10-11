@@ -1,8 +1,9 @@
 # QuartzWrt 双 Feed 定义（由 CI 追加到基座 feeds.conf 末尾，不替换基座内容）
 # 基座自带的 packages/luci/routing 等 feed 必须保留，否则 luci-base 等基础包缺失。
-# quartz 在前：同名包冲突时优先级更高（docs/TDD.md §4.5，仅作兜底，不依赖）。
-# 骨架阶段先指向 main；跑通后改为 commit SHA 锁定（格式: url;<commit-sha>）。
+# 两个 feed 均锁定 commit SHA（docs/TDD.md §4.2）；升级时改 SHA 后须全量 CI 验证。
+# 注意：feeds 同名包“先列者胜”，基座 feed 在前会遮蔽本文件中的同名包，
+#       因此基座已提供的插件一律不收录（直接 DEPENDS），见 ThirdParty README。
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git;main
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git;main
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git;e6e5a43aba04a3cc80d2b82fe6d1fc10258e55e2
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git;30846b95fdfa9cf1b804616f942fbd1ff491ce25

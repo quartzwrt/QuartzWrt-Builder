@@ -11,6 +11,7 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `config/base.env` | ImmortalWrt 基座锁定（分支 + 精确 commit） |
 | `config/feeds.conf.extra` | 双 Feed 定义（CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
 | `config/seed.config` | `.config` 构建种子（x86_64 起步，最小集） |
+| `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线 |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
@@ -27,12 +28,13 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 gh workflow run build.yml
 ```
 
-## 首次跑通后必做（按 docs/TDD.md §4 要求）
+## 构建锁定状态（docs/TDD.md §4）
 
-1. 用基座树中 `./scripts/diffconfig.sh` 的输出回填 `config/seed.config`。
-2. 把 `config/feeds.conf.extra` 中两个 Feed 的 `;main` 换成 commit SHA（格式 `url;<commit-sha>`）。
-3. 把各第三方包 Makefile 中的 `PKG_MIRROR_HASH:=skip` 替换为真实校验和（可用 maintainer-tools 或本地 `make package/.../download` 获取）。
-4. 将签名私钥加入 GitHub Secrets，按 §7.3 接入签名步骤。
+- ✅ 基座锁定：`config/base.env`（ImmortalWrt 25.12 @ ce35a9e4）。
+- ✅ 双 Feed 锁定：`config/feeds.conf.extra` 已从 `;main` 改为 commit SHA；升级时更新 SHA 并触发全量 CI 验证。
+- ✅ 第三方包校验和：`PKG_MIRROR_HASH` 已回填（thirdparty feed）。
+- ⏳ 待办：首次构建成功后，用基座树中 `./scripts/diffconfig.sh` 的输出回填 `config/seed.config`。
+- ⏳ 待办：将 apk 签名私钥加入 GitHub Secrets，按 §7.3 接入 CI 签名步骤。
 
 > 注意：`scripts/feeds` 的解析器只把 `#` 后跟至少一个字符的行当注释，**单独的 `#` 行会报语法错误**（见 `config/feeds.conf.extra` 中的说明）。
 
@@ -60,5 +62,5 @@ cat /path/to/QuartzWrt-Builder/config/feeds.conf.extra >> feeds.conf
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 # 验证某个包
-make package/feeds/thirdparty/luci-app-openclash/compile
+make package/feeds/thirdparty/luci-lib-docker/compile
 ```
