@@ -14,6 +14,12 @@
 #      这里按 /etc/config/uhttpd 默认值给出等效命令行。
 #   3. "首次启动"须模拟两步：/bin/config_generate（板级配置）+ 执行 uci-defaults
 #      （默认主题等注册；正规固件由 /etc/init.d/boot 触发）。
+#   4. 必须显式给 uhttpd 传 ubus 参数（-u /ubus -U /var/run/ubus/ubus.sock，对应
+#      /etc/init.d/uhttpd 对 ubus_prefix/ubus_socket 的翻译）；缺失时 /ubus 端点不注册
+#      （404），LuCI 前端 RPC 探针失败走回退路径，相当一部分视图（overview/system/
+#      network/dhcp…）会永远停在"正在载入视图"——2026-10-12 逐页排查结论。
+#   5. 容器内启动脚本用固定路径而非 mktemp+trap 删除：容器以 bind mount 引用该文件，
+#      删除后 docker restart 与 docker cp 都会失败（"mkdir qz-start.sh: not a directory"）。
 #
 # 用法: scripts/test-in-docker.sh [rootfs.tar.gz 路径]
 #   环境变量: PORT=8080（宿主端口）、PASSWORD=quartz（测试用 root 密码）
@@ -48,8 +54,8 @@ else
 	exit 1
 fi
 
-START_SCRIPT="$(mktemp /tmp/qz-start.XXXXXX.sh)"
-trap 'rm -f "$START_SCRIPT"' EXIT
+# 固定路径启动脚本（非 mktemp）：容器 bind mount 引用，必须持续存在（坑位 5）
+START_SCRIPT="/tmp/quartzwrt-docker-start.sh"
 cat > "$START_SCRIPT" <<'EOS'
 #!/bin/sh
 # 容器内启动脚本：模拟首次启动 + 最小服务链（替代完整 procd 启动）
@@ -76,7 +82,9 @@ sleep 1
 rpcd &
 sleep 1
 # uhttpd 无 -c 选项，按固件默认配置翻译（坑位 2）：监听 80、docroot /www、CGI /cgi-bin
-exec uhttpd -f -p 0.0.0.0:80 -h /www -x /cgi-bin
+# ubus 参数必须显式给出（坑位 4）：-u /ubus 注册 ubus RPC 前缀，-U 指定 ubusd socket；
+# 缺失时 LuCI 前端部分视图永久卡在"正在载入视图"（实测）
+exec uhttpd -f -p 0.0.0.0:80 -h /www -x /cgi-bin -u /ubus -U /var/run/ubus/ubus.sock
 EOS
 
 echo "==> 导入镜像: $(basename "$TARBALL")（更新于 $(date -r "$TARBALL" '+%H:%M:%S')）"
