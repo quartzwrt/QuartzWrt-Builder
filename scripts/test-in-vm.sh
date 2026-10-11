@@ -19,6 +19,10 @@
 #
 # 进系统后：串口控制台直接是 root shell（全新镜像无密码）；先 passwd 设一个，
 # 再用浏览器访问 http://localhost:$PORT 登录 LuCI。
+#
+# 自检提示：用 wget 抓 CGI 页（/cgi-bin/luci/）会得到 0 字节正文——wget 与 uhttpd
+# 的 chunked 403 响应兼容问题（docker 期同样复现，浏览器不受影响）；验证页面
+# 请用浏览器，或 python3 urllib（正确处理 chunked，实测 403 + 3177 字节正文）。
 set -euo pipefail
 
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
