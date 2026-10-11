@@ -302,7 +302,7 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 
 *   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验，产物落本地目录。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
-*   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。
+*   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk；另需 `zstd`）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。**WSL 额外注意**：须剔除 PATH 中的 Windows 条目（`/mnt/c/...`，含空格路径）——GNU find 的 `-execdir` 安全检查会因相对/含空格路径直接报错（实测触发于 rust host 包安装阶段）；`scripts/build-local.sh` 已内置 PATH 净化。
 *   **同步义务**：CI workflow 与本地脚本的步骤必须保持一致，任一侧变更需同步另一侧。
 
 ---

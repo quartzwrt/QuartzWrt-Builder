@@ -31,6 +31,17 @@ if grep -qi microsoft /proc/version && [[ "$WORK_DIR" == /mnt/* ]]; then
   exit 1
 fi
 
+# PATH 净化：WSL 会把 Windows PATH 追加进来（/mnt/c/...，含空格条目），
+# GNU find 的 -execdir 安全检查会直接报错（rust host 包安装阶段实测），
+# 构建期一律剔除：只保留绝对 Linux 路径，且排除 /mnt/*。
+_clean_path=""
+IFS=':' read -r -a _path_entries <<< "$PATH"
+for _p in "${_path_entries[@]}"; do
+  [[ -z "$_p" || "$_p" != /* || "$_p" == /mnt/* ]] && continue
+  _clean_path="${_clean_path:+$_clean_path:}$_p"
+done
+export PATH="$_clean_path"
+
 # 依赖预检：与 docs/TDD.md §7.4 前置条件一致（awk 不能是 mawk）
 step "构建依赖预检"
 for cmd in time libtoolize zstd node gawk git file flex bison unzip rsync wget python3; do
