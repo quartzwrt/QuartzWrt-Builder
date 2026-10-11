@@ -65,8 +65,17 @@ cat "$BUILDER_DIR/config/feeds.conf.extra" >> "$BASE_DIR/feeds.conf"
 tail -n 4 "$BASE_DIR/feeds.conf"
 
 # 4. feeds update / install
+# 两个自有 feed 锁定为 commit（双 Feed 定义中的 ^SHA）：scripts/feeds 对已存在的
+# checkout 会直接跳过（源码注释 "in case git hash has been provided don't update
+# the feed"），配置改 SHA 后不会重新检出。因此每轮强制删除旧目录，保证按锁定
+# SHA 重新克隆、修复包增删后的残留（CI 每次全新检出，无此问题）。
 step "feeds update + install"
+rm -rf "$BASE_DIR/feeds/quartz" "$BASE_DIR/feeds/thirdparty" \
+       "$BASE_DIR/package/feeds/quartz" "$BASE_DIR/package/feeds/thirdparty"
 (cd "$BASE_DIR" && ./scripts/feeds update -a && ./scripts/feeds install -a)
+for f in quartz thirdparty; do
+  echo "feed $f @ $(git -C "$BASE_DIR/feeds/$f" rev-parse HEAD)"
+done
 
 # 5. 双 Feed 同名包检查（docs/TDD.md §4.5）
 step "同名包检查"
