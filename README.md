@@ -46,9 +46,10 @@ git ls-remote https://github.com/immortalwrt/immortalwrt.git refs/heads/openwrt-
 
 改后触发一次全量 CI 验证。
 
-## 本地单包快速验证
+## 本地构建（开发迭代）
 
-全量编译交给 CI，本地只做单包验证（几分钟级）：
+- **全量本地构建**：`scripts/build-local.sh`（复刻 CI 步骤，见 docs/TDD.md §7.4），产物落在本地目录，用于快速迭代验证；正式产物仍以 CI 为准。
+- **单包快速验证**（几分钟级）：
 
 ```bash
 git clone https://github.com/immortalwrt/immortalwrt.git --branch openwrt-25.12

@@ -3,7 +3,13 @@ name: Build QuartzWrt Firmware
 on:
   push:
     branches: [main]
+    paths-ignore: &docs-only
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
+    paths-ignore: *docs-only
   schedule:
     # 每周日 02:00 (UTC+8) 定期构建，验证上游滚动情况
     - cron: '0 18 * * 6'

@@ -269,7 +269,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 
 ### 7.1 自动化构建流水线 (GitHub Actions)
 
-一切以 CI 编译结果为准，禁止开发者在本地进行全量固件编译。
+CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，禁止将本地构建产物作为发布件分发。本地构建用于开发迭代与调试（见 §7.4），不替代 CI。
 
 **CI 核心 Pipeline:**
 1.  **Checkout**: 拉取 `QuartzWrt-Builder` 与 ImmortalWrt 基座（锁定分支 + 精确 commit，见 §4.2）。
@@ -293,6 +293,15 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 *   **固件签名**：固件镜像与 `.apk` 包统一走上述签名体系，App/Web 升级前校验。
 *   **OTA 通道**：规划 Attended Sysupgrade (ASU) 或自定义 OTA 通道，作为 App 触发固件升级的统一入口；升级流程强制签名校验。
 
+### 7.4 本地构建工作流（开发迭代）
+
+CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布**，**本地覆盖快速迭代**，两者步骤保持一致。
+
+*   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验，产物落本地目录。
+*   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
+*   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。
+*   **同步义务**：CI workflow 与本地脚本的步骤必须保持一致，任一侧变更需同步另一侧。
+
 ---
 
 ## 8. 关键技术决策与待决事项 (Open Questions)
@@ -306,6 +315,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 | 同名包冲突 | 优先重命名 + CI 强制检查 | 见 §4.5 |
 | 包管理器 | apk | 基座定为 ImmortalWrt 25.12（apk 体系），见 §7.3 |
 | 签名体系 | apk RSA (key-build) | 见 §7.3 |
+| 本地构建 | 方案一：脚本复刻 CI 步骤（`scripts/build-local.sh`），定位于开发迭代 | 正式产物仍以 CI 为准，见 §7.1、§7.4 |
 
 ### 待决事项
 
@@ -325,6 +335,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 - [ ] 搭建 `Builder`、`QuartzWrt-Packages` 与 `QuartzWrt-ThirdParty` 三个仓库骨架。
 - [ ] **确定包管理器（opkg/apk）并初始化 usign 签名密钥对。**
 - [ ] 跑通 GitHub Actions CI/CD 流水线，实现双 Feed 注入（含 commit 锁定与同名包检查）与 ImmortalWrt 原版固件的自动编译。
+- [ ] 交付本地构建脚本 `scripts/build-local.sh`（与 CI 步骤一致，§7.4）。
 - [ ] 搭建前端脚手架 (Vite + Tailwind)，验证 CSS 隔离方案。
 
 ### Phase 2: Quartz UI 与数据聚合 (Week 3-5)
