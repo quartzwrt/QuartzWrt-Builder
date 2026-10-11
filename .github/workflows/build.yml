@@ -1,0 +1,126 @@
+name: Build QuartzWrt Firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 每周日 02:00 (UTC+8) 定期构建，验证上游滚动情况
+    - cron: '0 18 * * 6'
+  workflow_dispatch:
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    steps:
+      - name: Maximize build space (OpenWrt 全量构建需 60GB+)
+        uses: easimon/maximize-build-space@v10
+        with:
+          root-reserve-mb: 10240
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Checkout Builder repo
+        uses: actions/checkout@v4
+
+      - name: Load base version (ImmortalWrt 基座锁定, docs/TDD.md §4.2)
+        id: base
+        run: |
+          set -a; . config/base.env; set +a
+          {
+            echo "owner_repo=${BASE_OWNER_REPO}"
+            echo "branch=${BASE_BRANCH}"
+            echo "commit=${BASE_COMMIT}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout ImmortalWrt base
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.base.outputs.owner_repo }}
+          ref: ${{ steps.base.outputs.commit }}
+          path: immortalwrt
+          fetch-depth: 0
+
+      - name: Inject feeds.conf (追加双 Feed，保留基座 feeds)
+        working-directory: immortalwrt
+        run: |
+          cp feeds.conf.default feeds.conf
+          cat ../config/feeds.conf.extra >> feeds.conf
+          echo "--- feeds.conf ---"
+          cat feeds.conf
+
+      - name: Update and install feeds
+        working-directory: immortalwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Check duplicate packages across feeds
+        working-directory: immortalwrt
+        run: bash ../scripts/check-duplicate-packages.sh feeds
+
+      - name: Prepare ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ steps.base.outputs.commit }}-${{ hashFiles('config/seed.config') }}
+          restore-keys: |
+            ccache-${{ steps.base.outputs.commit }}-
+
+      - name: Link ccache dir
+        run: |
+          mkdir -p ~/.ccache
+          ln -s ~/.ccache immortalwrt/.ccache
+
+      - name: Load build config
+        working-directory: immortalwrt
+        run: |
+          cp ../config/seed.config .config
+          make defconfig
+
+      - name: Build firmware
+        working-directory: immortalwrt
+        run: make -j$(nproc) V=s
+        # 首次跑通后可将 V=s 降级为 V=w 以加快构建、减小日志
+
+      - name: Verify key packages in manifest
+        working-directory: immortalwrt
+        run: |
+          manifest=$(find bin -name '*.manifest' | head -1)
+          echo "manifest: $manifest"
+          for p in quartz-defaults luci-app-openclash luci-app-dockerman luci-lib-docker; do
+            if grep -q "^${p} " "$manifest"; then
+              echo "OK: $p"
+            else
+              echo "FAIL: $p 不在固件清单中（可能依赖未满足被静默取消选择）"
+              exit 1
+            fi
+          done
+
+      - name: Collect artifacts
+        working-directory: immortalwrt
+        run: |
+          mkdir -p ../artifacts
+          find bin -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) -exec cp {} ../artifacts/ \;
+          cp .config ../artifacts/dotconfig
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}
+          path: artifacts/
+          retention-days: 14
+
+      - name: Publish release (tag 推送时)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
