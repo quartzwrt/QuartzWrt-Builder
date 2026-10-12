@@ -14,7 +14,9 @@
 #   scripts/test-in-vm.sh                交互模式：串口控制台直连（Ctrl-A X 退出）
 #   scripts/test-in-vm.sh --detach       后台模式：就绪后打印访问地址（保持运行）
 #   scripts/test-in-vm.sh --stop         停掉后台实例
-#   scripts/test-in-vm.sh --keep         复用上次的磁盘覆盖层（默认每次全新首次启动）
+#   scripts/test-in-vm.sh --keep         复用上次的磁盘覆盖层（默认每次全新首次启动；
+#                                        镜像重建后拒绝复用——陈旧覆盖层会致启动崩溃，
+#                                        QUARTZ_ALLOW_STALE_OVERLAY=1 可强制）
 # 环境变量: PORT=8080（LuCI 宿主端口）、SSH_PORT=2222、APP_PORT=8443（App API
 #           443 宿主端口，WP-5）、MEM=1024、SMP=4
 #
@@ -87,6 +89,16 @@ if [ ! -f "$IMG" ] || [ "$IMG_GZ" -nt "$IMG" ]; then
 fi
 
 if [ "$KEEP" = 1 ] && [ -f "$OVERLAY" ]; then
+	# 陈旧覆盖层护栏（2026-10-12 实测坑）：覆盖层只与"生成它时的那个基底镜像"
+	# 配套——镜像重建后内容变化，同路径对新基底复用会得到文件系统混合损坏
+	# （症状：内核 panic "No working init found" 循环重启）。修复方式：不加
+	# --keep 用全新覆盖层；确有需要（如跨镜像保留手工配置）设
+	# QUARTZ_ALLOW_STALE_OVERLAY=1 强制。
+	if [ "$IMG" -nt "$OVERLAY" ] && [ "${QUARTZ_ALLOW_STALE_OVERLAY:-0}" != 1 ]; then
+		echo "错误：基底镜像（$(date -r "$IMG" '+%m-%d %H:%M:%S')）比覆盖层（$(date -r "$OVERLAY" '+%m-%d %H:%M:%S')）新——镜像重建后不得复用旧覆盖层（会 No working init 崩溃）。" >&2
+		echo "      去掉 --keep 用全新覆盖层；或 QUARTZ_ALLOW_STALE_OVERLAY=1 强制。" >&2
+		exit 1
+	fi
 	echo "==> 复用磁盘覆盖层（保留上次系统内改动）"
 else
 	echo "==> 新建磁盘覆盖层（全新首次启动，uci-defaults 会完整执行）"
