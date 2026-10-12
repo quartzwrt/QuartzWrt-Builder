@@ -95,12 +95,20 @@ jobs:
         run: |
           manifest=$(find bin -name '*.manifest' | head -1)
           echo "manifest: $manifest"
-          for p in quartz-defaults luci-app-openclash luci-app-dockerman luci-lib-docker; do
+          for p in quartz-defaults luci-theme-quartz luci-app-dashboard luci-app-quartz-config luci-app-openclash; do
             if grep -q "^${p} " "$manifest"; then
               echo "OK: $p"
             else
               echo "FAIL: $p 不在固件清单中（可能依赖未满足被静默取消选择）"
               exit 1
+            fi
+          done
+          for p in dockerd docker containerd runc luci-app-dockerman luci-lib-docker; do
+            if grep -q "^${p} " "$manifest"; then
+              echo "FAIL: $p 出现在固件清单中（docker 已移出预装，2026-10-12 用户拍板）"
+              exit 1
+            else
+              echo "OK(不在列): $p"
             fi
           done
 

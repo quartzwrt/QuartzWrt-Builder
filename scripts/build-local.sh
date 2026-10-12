@@ -107,16 +107,24 @@ cp "$BUILDER_DIR/config/seed.config" "$BASE_DIR/.config"
 step "全量构建 make -j$JOBS（首次约 45–90 分钟）"
 (cd "$BASE_DIR" && make -j"$JOBS" V=w)
 
-# 9. manifest 校验：与 CI 相同的四包清单（docs/TDD.md §3.2）
+# 9. manifest 校验：关键包在列 + docker 栈确认不在列（docker 已移出预装，2026-10-12）
 step "校验固件 manifest 关键包"
 manifest="$(find "$BASE_DIR/bin" -name '*.manifest' | head -1)"
 echo "manifest: $manifest"
-for p in quartz-defaults luci-app-openclash luci-app-dockerman luci-lib-docker; do
+for p in quartz-defaults luci-theme-quartz luci-app-dashboard luci-app-quartz-config luci-app-openclash; do
   if grep -q "^${p} " "$manifest"; then
     echo "OK: $p"
   else
     echo "FAIL: $p 不在固件清单中（可能依赖未满足被静默取消选择）" >&2
     exit 1
+  fi
+done
+for p in dockerd docker containerd runc luci-app-dockerman luci-lib-docker; do
+  if grep -q "^${p} " "$manifest"; then
+    echo "FAIL: $p 出现在固件清单中（docker 已移出预装，2026-10-12 用户拍板）" >&2
+    exit 1
+  else
+    echo "OK(不在列): $p"
   fi
 done
 
