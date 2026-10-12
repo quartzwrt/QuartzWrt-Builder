@@ -130,7 +130,7 @@ endef
 
 #### 数据聚合层 (`quartz-daemon`)
 为解决 LuCI 传统 Lua 模板并发请求导致的卡顿，引入独立的轻量级守护进程：
-*   **技术栈**：Go 或 Rust（静态编译为单一二进制文件）。
+*   **技术栈**：**Go**（单一自包含二进制，交叉编译；动态链接系统 musl libc，与 feed 惯例一致——"静态编译"指无额外运行库依赖，非字面静态链接）。实现见 `QuartzWrt-Packages/utils/quartz-daemon/`（DESIGN v1.0，契约 AGGREGATE-API v1 生产者）。
 *   **职责**：后台定时采集系统负载、网络吞吐、Docker 状态、在线设备 MAC/IP。
 *   **输出**：提供单一的高性能 HTTP/JSON 接口，前端一次请求即可渲染整个 Dashboard。
 
@@ -203,7 +203,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 构建期 `PKG_*_HASH` **管不到运行时下载的资源**。OpenClash/PassWall 的代理核心二进制、GeoIP 数据库等是在设备运行时下载的，这部分同样需要治理：
 
 *   建立**运行时资源清单**：每个插件声明其运行时下载项（URL、版本、SHA256、镜像源）。
-*   `quartz-daemon` 或 Bridge 通过 API 暴露各插件核心/规则库的**版本与更新状态**，供 App/Dashboard 展示与触发更新。
+*   `quartz-daemon` 或 Bridge 通过 API 暴露各插件核心/规则库的**版本与更新状态**，供 App/Dashboard 展示与触发更新。（WP-4 v1 已接入版本读取：`services.<id>.<field>` 开放映射，如 `openclash.core`；**更新状态比较需联网**，随本清单治理落地，触发动作归 WP-5/Bridge。）
 *   运行时下载一律走 QuartzWrt 可控的镜像源，并校验 SHA256。
 
 ### 4.5 同名包冲突处理规则
@@ -321,12 +321,12 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 | 本地构建 | 方案一：脚本复刻 CI 步骤（`scripts/build-local.sh`），定位于开发迭代 | 正式产物仍以 CI 为准，见 §7.1、§7.4 |
 | CI 触发 | 仅手动 `workflow_dispatch`（不随 push/PR 自动运行） | 日常验证走本地构建；CI 用于发布前/重大变更后的权威验收，见 §7.1 |
 | UI 隔离 | Tailwind utilities 采用 `qz:` 前缀（v4 变体语法）+ `source(none)` 精确扫描；主题 cascade.css 入层（层序 theme < base < qz-theme < components < utilities），preflight 归 base 并辅以显式中和规则 | 2026-10-12 实测通过（WP-2 spike，`dev/spike/tailwind/RESULTS.md`）：生产配置零污染且 utilities 正常生效 |
+| Daemon 技术栈 | **Go**（单一自包含二进制、零第三方依赖）| 契约 AGGREGATE-API v1 生产者；WP-4 `DESIGN.md` v1.0（2026-10-12 定案并实现） |
 
 ### 待决事项
 
 | 模块 | 待决事项 (Open Questions) | 建议方案 / 思考方向 |
 | :--- | :--- | :--- |
-| **Daemon** | `quartz-daemon` 使用 Go 还是 Rust？ | MVP 阶段建议先用 **Go**（开发效率高，JSON 处理方便），后期若遇 ARM 设备内存瓶颈再考虑 Rust 重写。 |
 | **App 推送** | 路由器在内网，如何向 App 推送断网/告警消息？ | 固件端预留 Webhook 接口，集成 Bark / PushDeer / Telegram Bot 等第三方推送服务。 |
 | **OTA 通道** | ASU 还是自定义升级服务？ | 优先评估 ASU（社区成熟方案）；自定义方案须完整实现签名校验。 |
 
