@@ -15,7 +15,8 @@
 #   scripts/test-in-vm.sh --detach       后台模式：就绪后打印访问地址（保持运行）
 #   scripts/test-in-vm.sh --stop         停掉后台实例
 #   scripts/test-in-vm.sh --keep         复用上次的磁盘覆盖层（默认每次全新首次启动）
-# 环境变量: PORT=8080（LuCI 宿主端口）、SSH_PORT=2222、MEM=1024、SMP=4
+# 环境变量: PORT=8080（LuCI 宿主端口）、SSH_PORT=2222、APP_PORT=8443（App API
+#           443 宿主端口，WP-5）、MEM=1024、SMP=4
 #
 # 进系统后：串口控制台直接是 root shell（全新镜像无密码）；先 passwd 设一个，
 # 再用浏览器访问 http://localhost:$PORT 登录 LuCI。
@@ -30,6 +31,7 @@ BASE_DIR="${QUARTZ_WORK_DIR:-$BUILDER_DIR/../build}/immortalwrt"
 VM_DIR="$BUILDER_DIR/../vm"
 PORT="${PORT:-8080}"
 SSH_PORT="${SSH_PORT:-2222}"
+APP_PORT="${APP_PORT:-8443}"
 MEM="${MEM:-1024}"
 SMP="${SMP:-4}"
 OVERLAY="$VM_DIR/overlay.qcow2"
@@ -94,7 +96,7 @@ fi
 
 # ---- 网络：slirp 用户网络对齐固件 LAN 网段（默认 lan=192.168.1.1），
 #      显式指定 hostfwd 目标地址，确保转发不依赖 DHCP 租约表 ----
-NETDEV="user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp::${PORT}-192.168.1.1:80,hostfwd=tcp::${SSH_PORT}-192.168.1.1:22"
+NETDEV="user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp::${PORT}-192.168.1.1:80,hostfwd=tcp::${SSH_PORT}-192.168.1.1:22,hostfwd=tcp::${APP_PORT}-192.168.1.1:443"
 
 QEMU_ARGS=(
 	qemu-system-x86_64
