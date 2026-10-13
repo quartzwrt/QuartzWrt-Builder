@@ -5,7 +5,7 @@
 **基座系统**: ImmortalWrt (OpenWrt 衍生版)
 **文档状态**: 已确认 (Approved)
 **适用范围**: QuartzWrt 固件构建、App 开发、第三方插件引入
-**最后更新**: 2026-10-12
+**最后更新**: 2026-10-14
 
 > **版本说明**：本文由《QuartzWrt 技术设计文档 v1.1.0》与《QuartzWrt 第三方软件包集成与管理规范 v1.0.0》合并而成，统一了两份文档的术语、修正了与 OpenWrt 构建机制不符的示例，并补充了 Feed 自锁定、运行时资源锁定、签名与 OTA 等章节。
 
@@ -20,6 +20,7 @@
 | `QuartzWrt-ThirdParty` | 仓库 | 第三方插件收集器。在 `feeds.conf` 中的 feed 标识为 **`thirdparty`** |
 | `quartz-defaults` | 元包 | 位于 `QuartzWrt-Packages` 的 `meta/` 目录，统一声明跨 Feed 的包依赖 |
 | Bridge（适配层） | 软件包 | 位于 `quartz` feed，将纯 LuCI 单体插件的底层操作封装为标准 ubus API |
+| 受控 Fork | 机制 | 承载第三方适配改动的本组织 fork：`main` 保持上游镜像、适配走 `quartz` 分支、发布锁 `vX.Y.Z-quartzN` tag（§4.7） |
 
 > 本文正文统一使用「仓库全名 + feed 标识」的写法（如 `QuartzWrt-Packages`（`quartz` feed）），不再混用 `quartz-packages`/`thirdparty-packages` 等历史写法。
 
@@ -61,7 +62,7 @@
 #### 第三方包集成三大原则
 1.  **物理隔离 (Physical Isolation)**：严格区分“自有核心代码”与“第三方收集代码”，通过双 Feed 架构实现物理仓库隔离。
 2.  **能力下沉与多端复用 (Backend Decoupling)**：App 和 Dashboard 绝不直接解析第三方 LuCI 的 HTML 页面或耦合其 UI 逻辑。所有第三方功能必须抽象为标准 API（ubus/HTTP）供多端调用。
-3.  **不可变上游 (Immutable Upstream)**：严禁直接修改第三方插件的上游源码。所有适配、补丁或 API 桥接必须通过独立的 `quartz` Feed 包来实现。
+3.  **不可变上游 (Immutable Upstream)**：严禁直接修改上游仓库（不向其提交、不强推、不改写历史）。适配、补丁或 API 桥接通过两条路径承载：**受控 Fork**（§4.7：fork 至本组织、镜像/适配分支分离、锁 tag）或 `quartz` Feed 的独立包（Bridge 适配层 / 再开发）。
 
 #### Feed 目录结构与职责规范
 
@@ -94,7 +95,7 @@ QuartzWrt-ThirdParty/
     └── ...                              # 第三方包所需的特定依赖库
 ```
 
-> **引入方式约定**：`thirdparty` Feed 中的每个包只放**薄 Makefile**（声明 `PKG_SOURCE_URL` + 锁定版本 + 校验和），源码由 OpenWrt 构建系统下载。**禁止**使用 Git Submodule 引入上游仓库（feeds 本身就是 git 仓库，嵌套 submodule 不会随 `scripts/feeds update` 更新）；**禁止** Fork 上游仓库改源码（违反“不可变上游”原则）。确无 Tag 可锁且必须 Fork 的特殊情况，须在 PR 中详细说明理由并经架构师 Review。
+> **引入方式约定**：`thirdparty` Feed 中的每个包只放**薄 Makefile**（声明 `PKG_SOURCE_URL` + 锁定版本 + 校验和），源码由 OpenWrt 构建系统下载。**禁止**使用 Git Submodule 引入上游仓库（feeds 本身就是 git 仓库，嵌套 submodule 不会随 `scripts/feeds update` 更新）。**Fork 上游承载适配改动必须遵循 §4.7 受控 Fork 规范**（2026-10-14 用户拍板）：fork 至 `quartzwrt` 组织，`main` 保持上游镜像（只 merge、不放自有提交），适配改动走 `quartz` 分支并打 `vX.Y.Z-quartzN` tag，feed 锁定 tag/commit；发布前同步上游并复验。
 
 > **同名包与基座遮蔽（2026-10-12 实践）**：feeds 同名包**先列者胜**，基座默认 feeds 在 `feeds.conf` 中位于双 Feed 之前——基座已提供的包（如 ImmortalWrt luci feed 自带的 `luci-app-openclash`、`luci-app-dockerman`）会**遮蔽** thirdparty 的同名包。因此：基座/quartz feed 已提供且满足需求的包**一律不收录**，由 `quartz-defaults` 直接 `DEPENDS`；仅收录基座没有的包（如 `luci-lib-docker`）。不能靠 feeds 顺序覆盖基座。
 
@@ -242,6 +243,19 @@ devices/<设备名>/
     适配包 `Fnet资料`，落地细节与 5G 模组建议（qmodem，未预装、候选归 WP-7）见
     `devices/erya_fnet-3399/README.md`）。
 
+### 4.7 受控 Fork 规范（2026-10-14 立，用户拍板）
+
+**适用**：上游结构不适配薄 Makefile（打包仓库型 / 预编译二进制型 / 多包 feed 型），或需要 QuartzWrt 适配改动（主题对齐、i18n、App 联动、探针投放）时——用 fork 承载改动；**禁止把上游文件复制进本仓库**（会漂移、不可 diff、不可同步）。
+
+**纪律**：
+
+1. **fork 至 `quartzwrt` 组织**，仓库名与上游一致（保留 fork 网络关系，便于对照与同步）；
+2. **分支分离**：`main` 保持上游镜像（只做 fast-forward/merge，不放自有提交）；适配改动走 `quartz` 分支；发布打 `vX.Y.Z-quartzN` tag；**feed 锁定 tag/commit，不锁分支**；
+3. **同步纪律**：上游发版或 QuartzWrt 发布前 → merge 上游 → rebase 适配分支 → 单包编译 + 验收复验；有价值的改动尽量 PR 回上游，减少长期分叉；
+4. **登记**：fork 清单与同步状态登记在 `QuartzWrt-ThirdParty/docs/FORKS.md`（上游→fork 对应、锁定 tag、改动摘要、上次同步日期）；
+5. **归口**：活跃上游的适配版登记在 `thirdparty`（源指 fork）；分叉深到"再开发"程度（上游停更/大改）时迁 `quartz` Feed 独立包（WP-10 模式）；
+6. **feed 形态**：默认 thirdparty 薄 Makefile 指向 fork；上游本身为 feed/包根形态时，可 fork 后作为独立 feed 行追加进 `feeds.conf.extra`（锁 commit，`scripts/feeds` 扫描深度 5 内有效）。
+
 ---
 
 ## 5. 第三方包集成与 App 联动模式
@@ -293,6 +307,7 @@ devices/<设备名>/
 - [ ] **App 联动可行性**：该插件提供的功能，是否具备通过 API 暴露给移动端 App 的实际使用场景和价值？
 - [ ] **许可证兼容性**：上游许可证（GPL/闭源）是否与 QuartzWrt 的再分发策略一致？
 - [ ] **供应链审计**：插件是否内嵌预编译二进制？二进制来源与校验方式是什么？运行时下载资源（核心、规则库）是否已纳入运行时资源清单（§4.4）？
+- [ ] **Fork 判定**：是否需要适配改动（主题/i18n/App 联动），或上游结构不适配薄 Makefile（打包仓库型/预编译二进制型/多包 feed 型）？需要则按 §4.7 建受控 Fork（登记 `FORKS.md`）；不需要则保持薄 Makefile 直指上游。
 
 ---
 
