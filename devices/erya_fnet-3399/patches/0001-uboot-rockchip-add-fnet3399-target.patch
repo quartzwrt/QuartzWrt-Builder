@@ -1,0 +1,26 @@
+diff --git a/package/boot/uboot-rockchip/Makefile b/package/boot/uboot-rockchip/Makefile
+index 1633d1ef57..f373857c80 100644
+--- a/package/boot/uboot-rockchip/Makefile
++++ b/package/boot/uboot-rockchip/Makefile
+@@ -124,6 +124,13 @@ define U-Boot/rk3399/Default
+   ATF:=$(RK3399_ATF)
+ endef
+ 
++define U-Boot/fnet3399-rk3399
++  $(U-Boot/rk3399/Default)
++  NAME:=FNet 3399
++  BUILD_DEVICES:= \
++    erya_fnet-3399
++endef
++
+ define U-Boot/guangmiao-g4c-rk3399
+   $(U-Boot/rk3399/Default)
+   NAME:=GuangMiao G4C
+@@ -519,6 +526,7 @@ define U-Boot/rock-5c-rk3588s
+ endef
+ 
+ UBOOT_TARGETS := \
++  fnet3399-rk3399 \
+   guangmiao-g4c-rk3399 \
+   nanopc-t4-rk3399 \
+   nanopi-r4s-rk3399 \

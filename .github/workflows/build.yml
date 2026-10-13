@@ -5,8 +5,17 @@ name: Build QuartzWrt Firmware
 # 发布前 / 基础设施重大变更后的干净环境权威验收。
 # 定时构建已取消：基座与双 Feed 均已锁定 SHA，计划构建只会重复同一状态；
 # 上游版本跟踪将另设轻量任务（待建）。
+#
+# 设备构建（2026-10-14 起）：workflow_dispatch 的 device 输入为空 = x86_64 默认目标；
+# 填 devices/<名>（如 erya_fnet-3399）= 设备构建（应用 devices/ 适配层 + 设备 seed）。
 on:
   workflow_dispatch:
+    inputs:
+      device:
+        description: '设备适配（devices/<名>，如 erya_fnet-3399；留空 = x86_64 默认）'
+        required: false
+        default: ''
+        type: string
 
 env:
   TZ: Asia/Shanghai
@@ -29,6 +38,14 @@ jobs:
 
       - name: Checkout Builder repo
         uses: actions/checkout@v4
+
+      - name: Validate device (设备参数校验)
+        if: ${{ inputs.device != '' }}
+        run: |
+          test -d "devices/${{ inputs.device }}" || {
+            echo "FAIL: devices/${{ inputs.device }} 不存在"; exit 1; }
+          test -f "devices/${{ inputs.device }}/device.env" && test -f "devices/${{ inputs.device }}/seed.config"
+          echo "OK: 设备 ${{ inputs.device }}"
 
       - name: Load base version (ImmortalWrt 基座锁定, docs/TDD.md §4.2)
         id: base
@@ -66,11 +83,15 @@ jobs:
         working-directory: immortalwrt
         run: bash ../scripts/check-duplicate-packages.sh feeds
 
+      - name: Apply device adaptation (设备适配层, docs/TDD.md §4.6)
+        if: ${{ inputs.device != '' }}
+        run: bash scripts/apply-device.sh "${{ github.workspace }}/immortalwrt" "${{ inputs.device }}"
+
       - name: Prepare ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ steps.base.outputs.commit }}-${{ hashFiles('config/seed.config') }}
+          key: ccache-${{ steps.base.outputs.commit }}-${{ hashFiles('config/seed.config', 'devices/**') }}
           restore-keys: |
             ccache-${{ steps.base.outputs.commit }}-
 
@@ -82,7 +103,11 @@ jobs:
       - name: Load build config
         working-directory: immortalwrt
         run: |
-          cp ../config/seed.config .config
+          if [ -n "${{ inputs.device }}" ]; then
+            cp "../devices/${{ inputs.device }}/seed.config" .config
+          else
+            cp ../config/seed.config .config
+          fi
           make defconfig
 
       - name: Build firmware
@@ -90,39 +115,45 @@ jobs:
         run: make -j$(nproc) V=s
         # 首次跑通后可将 V=s 降级为 V=w 以加快构建、减小日志
 
-      - name: Verify key packages in manifest
+      - name: Verify packages in manifest (公共断言 + 设备断言)
         working-directory: immortalwrt
         run: |
-          manifest=$(find bin -name '*.manifest' | head -1)
-          echo "manifest: $manifest"
-          for p in quartz-defaults luci-theme-quartz luci-app-dashboard luci-app-quartz-config luci-app-openclash; do
-            if grep -q "^${p} " "$manifest"; then
-              echo "OK: $p"
-            else
-              echo "FAIL: $p 不在固件清单中（可能依赖未满足被静默取消选择）"
-              exit 1
-            fi
-          done
-          for p in dockerd docker containerd runc luci-app-dockerman luci-lib-docker; do
-            if grep -q "^${p} " "$manifest"; then
-              echo "FAIL: $p 出现在固件清单中（docker 已移出预装，2026-10-12 用户拍板）"
-              exit 1
-            else
-              echo "OK(不在列): $p"
-            fi
-          done
+          if [ -n "${{ inputs.device }}" ]; then
+            . "../devices/${{ inputs.device }}/device.env"
+            BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
+          else
+            BIN="bin/targets/x86/64"
+          fi
+          manifest=$(find "$BIN" -name '*.manifest' | head -1)
+          [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest"; exit 1; }
+          bash ../scripts/check-manifest.sh "$manifest" "${{ inputs.device }}"
+
+      - name: Verify device image (设备构建)
+        if: ${{ inputs.device != '' }}
+        working-directory: immortalwrt
+        run: |
+          . "../devices/${{ inputs.device }}/device.env"
+          BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
+          img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
+          if [ -n "$img" ]; then echo "OK: $img"; else echo "FAIL: 未找到 $DEVICE_IMAGE_GLOB"; exit 1; fi
 
       - name: Collect artifacts
         working-directory: immortalwrt
         run: |
+          if [ -n "${{ inputs.device }}" ]; then
+            . "../devices/${{ inputs.device }}/device.env"
+            BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
+          else
+            BIN="bin/targets/x86/64"
+          fi
           mkdir -p ../artifacts
-          find bin -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) -exec cp {} ../artifacts/ \;
+          find "$BIN" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) -exec cp {} ../artifacts/ \;
           cp .config ../artifacts/dotconfig
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}
+          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}${{ inputs.device != '' && format('-{0}', inputs.device) || '' }}
           path: artifacts/
           retention-days: 14
 

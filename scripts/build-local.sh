@@ -3,15 +3,22 @@
 #
 # 复刻 .github/workflows/build.yml 的关键步骤，用于开发迭代与调试：
 #   基座检出（锁定 commit）→ feeds 追加注入 → update/install → 同名包检查
-#   → ccache → seed.config + defconfig → make → manifest 校验 → 产物收集
+#   → 设备适配层（可选）→ ccache → seed.config + defconfig → make
+#   → manifest 校验 → 产物收集
 #
 # CI 是权威构建与发布通道；本脚本产物仅用于本地调试，禁止作为发布件分发。
 # 与 CI 的步骤必须保持一致，任一侧变更需同步另一侧（docs/TDD.md §7.4）。
+# 公共步骤（设备适配应用、manifest 校验）已抽为 scripts/{apply-device,check-manifest}.sh，
+# 两侧共用，避免漂移。
 #
-# 用法: scripts/build-local.sh
+# 用法:
+#   scripts/build-local.sh                    # 默认目标 x86_64 generic
+#   scripts/build-local.sh --device erya_fnet-3399   # 设备构建（devices/ 适配层）
+#
 # 环境变量:
 #   QUARTZ_WORK_DIR       构建工作目录（默认 <Builder 仓库>../build）
-#   QUARTZ_ARTIFACTS_DIR  产物输出目录（默认 <Builder 仓库>../artifacts-local）
+#   QUARTZ_ARTIFACTS_DIR  产物输出目录（默认 <Builder 仓库>../artifacts-local[，设备构建加 /<设备名>]）
+#   QUARTZ_DEVICE         等价于 --device（命令行优先）
 #   JOBS                  make 并行度（默认 16；本机 15GB 内存勿再调高）
 
 set -euo pipefail
@@ -19,9 +26,39 @@ set -euo pipefail
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="${QUARTZ_WORK_DIR:-$BUILDER_DIR/../build}"
 BASE_DIR="$WORK_DIR/immortalwrt"
-ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local}"
 JOBS="${JOBS:-16}"
 CCACHE_DIR="${CCACHE_DIR:-$WORK_DIR/ccache}"
+
+DEVICE="${QUARTZ_DEVICE:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --device) DEVICE="${2:?--device 需要参数：设备名（devices/<设备名>/）}"; shift 2 ;;
+    --device=*) DEVICE="${1#--device=}"; shift ;;
+    -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "未知参数：$1（用法见 --help）" >&2; exit 1 ;;
+  esac
+done
+
+# 设备参数校验 + 元数据装载（docs/TDD.md §4.6）
+if [ -n "$DEVICE" ]; then
+  DEVICE_ENV="$BUILDER_DIR/devices/$DEVICE/device.env"
+  [ -f "$DEVICE_ENV" ] || {
+    echo "错误：设备不存在：$DEVICE（应为 devices/<设备名>/，现有：$(ls "$BUILDER_DIR/devices" 2>/dev/null | tr '\n' ' '))" >&2
+    exit 1
+  }
+  # shellcheck disable=SC1090
+  set -a; . "$DEVICE_ENV"; set +a
+  SEED_FILE="$BUILDER_DIR/devices/$DEVICE/seed.config"
+  TARGET_ID="$DEVICE_TARGET_ID"
+  ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local/$DEVICE}"
+  TARGET_BIN_DIR="$BASE_DIR/bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}"
+else
+  SEED_FILE="$BUILDER_DIR/config/seed.config"
+  TARGET_ID="x86-64-generic"
+  ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local}"
+  TARGET_BIN_DIR="$BASE_DIR/bin/targets/x86/64"
+fi
+TARGET_STAMP="$WORK_DIR/.quartz-target"
 
 step() { printf '\n==> [%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -52,6 +89,9 @@ if [[ "$(readlink -f "$(command -v awk)")" == *mawk ]]; then
   exit 1
 fi
 echo "OK"
+
+# 0. 构建目标（默认 x86_64；--device 时为设备目标）
+step "构建目标：$TARGET_ID${DEVICE:+（设备适配：$DEVICE）}"
 
 # 1. 基座锁定参数（docs/TDD.md §4.2）
 step "加载基座版本（config/base.env）"
@@ -92,46 +132,66 @@ done
 step "同名包检查"
 bash "$BUILDER_DIR/scripts/check-duplicate-packages.sh" "$BASE_DIR/feeds"
 
-# 6. ccache（与 CI 同样把构建目录 .ccache 链到持久目录）
+# 5b. 设备适配层（可选）：基座补丁 + files overlay（docs/TDD.md §4.6）
+if [ -n "$DEVICE" ]; then
+  step "应用设备适配层：$DEVICE"
+  bash "$BUILDER_DIR/scripts/apply-device.sh" "$BASE_DIR" "$DEVICE"
+fi
+
+# 6. 配置：种子 + defconfig 补齐默认项
+step "加载 seed.config（${DEVICE:-x86_64 默认}）并 defconfig"
+cp "$SEED_FILE" "$BASE_DIR/.config"
+(cd "$BASE_DIR" && make defconfig)
+
+# 6b. 目标切换护栏：上次目标与本次不同 → dirclean
+# 注意执行顺序：dirclean 按 **当前 .config 的目标域** 清理（rm -rf build_dir/target-<arch>、
+# bin/targets/<board>/<subtarget>、共享 host 工具与 tmp/），因此必须先落好新 .config 再清理，
+# 清理的才是新目标域的陈旧产物（多目标 build_dir 共存是基座设计，不整树删除）。
+prev_target="$(cat "$TARGET_STAMP" 2>/dev/null || true)"
+if [ -z "$prev_target" ] && [ -d "$BASE_DIR/staging_dir" ]; then
+  prev_target="unknown"   # 老树首次带戳运行：保守清理
+fi
+if [ "$prev_target" != "$TARGET_ID" ]; then
+  if [ -n "$prev_target" ]; then
+    step "目标切换（$prev_target → $TARGET_ID）：make dirclean"
+    (cd "$BASE_DIR" && make dirclean)
+  fi
+  echo "$TARGET_ID" > "$TARGET_STAMP"
+fi
+
+# 7. ccache（与 CI 同样把构建目录 .ccache 链到持久目录）
 step "准备 ccache（$CCACHE_DIR）"
 mkdir -p "$CCACHE_DIR"
 [ -e "$BASE_DIR/.ccache" ] || ln -s "$CCACHE_DIR" "$BASE_DIR/.ccache"
 export CCACHE_DIR
 
-# 7. 配置：种子 + defconfig 补齐默认项
-step "加载 seed.config 并 defconfig"
-cp "$BUILDER_DIR/config/seed.config" "$BASE_DIR/.config"
-(cd "$BASE_DIR" && make defconfig)
-
 # 8. 全量构建（本地用 V=w 减小日志；CI 首次跑通后也将降级）
-step "全量构建 make -j$JOBS（首次约 45–90 分钟）"
+step "全量构建 make -j$JOBS（首次约 45–90 分钟，换架构工具链重建更长）"
 (cd "$BASE_DIR" && make -j"$JOBS" V=w)
 
-# 9. manifest 校验：关键包在列 + docker 栈确认不在列（docker 已移出预装，2026-10-12）
-step "校验固件 manifest 关键包"
-manifest="$(find "$BASE_DIR/bin" -name '*.manifest' | head -1)"
-echo "manifest: $manifest"
-for p in quartz-defaults luci-theme-quartz luci-app-dashboard luci-app-quartz-config luci-app-openclash; do
-  if grep -q "^${p} " "$manifest"; then
-    echo "OK: $p"
-  else
-    echo "FAIL: $p 不在固件清单中（可能依赖未满足被静默取消选择）" >&2
-    exit 1
-  fi
-done
-for p in dockerd docker containerd runc luci-app-dockerman luci-lib-docker; do
-  if grep -q "^${p} " "$manifest"; then
-    echo "FAIL: $p 出现在固件清单中（docker 已移出预装，2026-10-12 用户拍板）" >&2
-    exit 1
-  else
-    echo "OK(不在列): $p"
-  fi
-done
+# 10. manifest 校验（公共断言 + 设备断言，与 CI 共用 check-manifest.sh）
+# 目标域限定：多目标构建产物在 bin/targets/<board>/<subtarget>/ 共存，
+# 一律按本次目标取 manifest/镜像，避免误取其他目标的存量产物。
+step "校验固件 manifest"
+manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
+[ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest" >&2; exit 1; }
+bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}"
 
-# 10. 产物收集（与 CI Collect artifacts 一致）
+# 10b. 设备构建：成品镜像存在性断言
+if [ -n "$DEVICE" ]; then
+  img="$(find "$TARGET_BIN_DIR" -name "$DEVICE_IMAGE_GLOB" | head -1)"
+  if [ -n "$img" ]; then
+    echo "OK(设备镜像): ${img#"$BASE_DIR/"}"
+  else
+    echo "FAIL(设备镜像): 未找到 $DEVICE_IMAGE_GLOB（bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}/）" >&2
+    exit 1
+  fi
+fi
+
+# 11. 产物收集（与 CI Collect artifacts 一致；同样限定本次目标域）
 step "收集产物 → $ARTIFACTS_DIR"
 mkdir -p "$ARTIFACTS_DIR"
-find "$BASE_DIR/bin" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) \
+find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) \
   -exec cp {} "$ARTIFACTS_DIR/" \;
 cp "$BASE_DIR/.config" "$ARTIFACTS_DIR/dotconfig"
 

@@ -10,12 +10,15 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | :--- | :--- |
 | `config/base.env` | ImmortalWrt 基座锁定（分支 + 精确 commit） |
 | `config/feeds.conf.extra` | 双 Feed 定义（CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
-| `config/seed.config` | `.config` 构建种子（x86_64 起步，最小集） |
-| `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4） |
+| `config/seed.config` | `.config` 构建种子（x86_64 默认目标，最小集） |
+| `devices/<设备名>/` | 设备适配层：基座补丁（`patches/`）+ 原样投放文件（`files/`）+ 设备种子（`seed.config`）+ 元数据（`device.env`）；当前含 `erya_fnet-3399`（RK3399） |
+| `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4）；`--device <名>` 切换设备目标 |
+| `scripts/apply-device.sh` | 设备适配层应用（build-local 与 CI 共用：复位→打补丁→投放 files） |
+| `scripts/check-manifest.sh` | manifest 校验（build-local 与 CI 共用：公共断言 + 设备断言） |
 | `scripts/test-in-docker.sh` | 本地镜像 Docker 快速预览：导入 rootfs 起最小服务链，浏览器看真实 LuCI（主题/Dashboard 视觉验证用；不含内核/网络/防火墙——那些走 QEMU） |
-| `scripts/test-in-vm.sh` | QEMU/KVM 真启动测试：完整引导链（BIOS→GRUB→内核）、procd 首次启动、网络栈；交互串口 / `--detach` / `--stop`（2026-10-12 实测通过） |
+| `scripts/test-in-vm.sh` | QEMU/KVM 真启动测试：完整引导链（BIOS→GRUB→内核）、procd 首次启动、网络栈；交互串口 / `--detach` / `--stop`（2026-10-12 实测通过；x86 目标） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
-| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发） |
+| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 输入切换设备目标） |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
 
 ## CI 构建（仅手动触发）
@@ -50,6 +53,24 @@ git ls-remote https://github.com/immortalwrt/immortalwrt.git refs/heads/openwrt-
 ```
 
 改后手动触发一次全量 CI 验证（`gh workflow run build.yml`）。
+
+## 设备适配（devices/，docs/TDD.md §4.6）
+
+Builder 支持多目标构建：默认 x86_64，`devices/<设备名>/` 目录承载设备适配
+（对锁定基座的补丁 + 原样投放文件 + 设备 `.config` 种子 + 元数据）。
+
+```bash
+# 设备本地构建（产物落 artifacts-local/<设备名>/）
+scripts/build-local.sh --device erya_fnet-3399
+
+# 设备 CI 构建（手动触发时填 device 输入）
+gh workflow run build.yml -f device=erya_fnet-3399
+```
+
+原则：**不改基座仓库**——设备差异一律落 `devices/`（补丁基于锁定 commit，
+逐字节可复现；基座升级后需重验补丁）。x86_64 ↔ 设备目标切换由 `build-local.sh`
+自动 `make dirclean`（`.quartz-target` 戳记护栏）。新增设备照
+`devices/erya_fnet-3399/` 的目录结构（`device.env`/`seed.config`/`patches/`/`files/`）复制改造。
 
 ## 本地构建（开发迭代）
 

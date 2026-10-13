@@ -1,0 +1,21 @@
+diff --git a/target/linux/rockchip/image/armv8.mk b/target/linux/rockchip/image/armv8.mk
+index 5ca6bf7723..9c9409f90b 100644
+--- a/target/linux/rockchip/image/armv8.mk
++++ b/target/linux/rockchip/image/armv8.mk
+@@ -131,6 +131,16 @@ define Device/cyber_cyber3588-aib
+ endef
+ TARGET_DEVICES += cyber_cyber3588-aib
+ 
++define Device/erya_fnet-3399
++  $(Device/rk3399)
++  DEVICE_VENDOR := Erya
++  DEVICE_MODEL := FNet 3399
++  DEVICE_DTS := rk3399-fnet-3399
++  UBOOT_DEVICE_NAME := fnet3399-rk3399
++  DEVICE_PACKAGES := kmod-usb-net-rtl8152 kmod-hwmon-pwmfan kmod-rfkill
++endef
++TARGET_DEVICES += erya_fnet-3399
++
+ define Device/ezpro_mrkaio-m68s
+   $(Device/rk3568)
+   DEVICE_VENDOR := EZPRO

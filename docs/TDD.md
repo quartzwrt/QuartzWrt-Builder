@@ -214,6 +214,34 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 2.  **兜底手段**：`feeds.conf` 中先列出的 Feed 优先级更高（`quartz` 在前即可覆盖 `thirdparty`）。但历史上 OpenWrt 在重复包的依赖解析上出过 bug，顺序只作为最后手段，不可依赖。
 3.  **CI 强制检查**：流水线中增加同名包扫描步骤——比对两个 Feed 的包目录名，或解析 `scripts/feeds install` 输出的 duplicate 警告，发现冲突直接让构建失败。
 
+### 4.6 设备适配层（devices/，2026-10-14 立）
+
+**原则：不改基座仓库、不动既定 x86_64 默认目标**——设备（硬件目标）差异一律收敛在 Builder 的
+`devices/<设备名>/` 目录，对锁定基座做非侵入叠加：
+
+```text
+devices/<设备名>/
+├── device.env        # 元数据：目标/子目标/架构/U-Boot 变体/manifest 设备断言/镜像匹配式
+├── seed.config       # 设备 .config 种子（首次构建后以 diffconfig 回填，同 §4.2 锁定纪律）
+├── patches/*.patch   # 对锁定基座的非侵入补丁（如 uboot-rockchip 目标注册、armv8 设备定义）
+└── files/            # 原样投放（镜像式覆盖到构建树：内核 DTS、U-Boot src overlay 等）
+```
+
+*   **应用方式**：`scripts/apply-device.sh <基座树> <设备名>`（本地与 CI 共用）——补丁目标文件先复位
+    （幂等、可重复运行），按序 `git apply`，`files/` 原样覆盖。设备补丁基于锁定 commit 逐字节可复现；
+    **基座 bump 后必须重验设备补丁**（apply 失败即构建失败，属预期护栏）。
+*   **构建入口**：`scripts/build-local.sh --device <名>` 与 CI `workflow_dispatch` 的 `device` 输入
+    （§7.1）；留空 = x86_64 默认目标。目标切换由 `$WORK_DIR/.quartz-target` 戳记护栏自动
+    `make dirclean`（防 staging_dir/build_dir 跨架构混用）。
+*   **设备构建验收**（三合一，经 `scripts/check-manifest.sh` 与 CI 步骤共用）：公共 manifest 断言
+    （quartz 五关键包在列 + docker 反向断言）+ 设备断言（`device.env` 的 `DEVICE_MANIFEST_PACKAGES`）
+    + 成品镜像存在性（`DEVICE_IMAGE_GLOB`，如 `*erya_fnet-3399*squashfs-sysupgrade.img.gz`）。
+*   **硬件验收边界**：本层只保证"构建侧适配"（设备被识别、U-Boot/内核 DTB/镜像正确产出）；
+    真机刷写与首启验收由设备侧流程完成（x86 的 QEMU 预览台不适用于 ARM 设备镜像）。
+*   **当前设备**：`erya_fnet-3399`（Erya FNet3399，RK3399，rockchip/armv8；适配素材来自 vendor
+    适配包 `Fnet资料`，落地细节与 5G 模组建议（qmodem，未预装、候选归 WP-7）见
+    `devices/erya_fnet-3399/README.md`）。
+
 ---
 
 ## 5. 第三方包集成与 App 联动模式
@@ -279,9 +307,10 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 2.  **Feeds Inject**: 在基座默认 `feeds.conf` **末尾追加** `quartz` 与 `thirdparty` 两行（保留基座 packages/luci 等 feed，不得整体覆写，否则 luci-base 等基础包缺失；锁定 commit，见 §4.2）。
 3.  **Update & Install**: 执行 `./scripts/feeds update -a && ./scripts/feeds install -a`。
 4.  **Duplicate Check**: 同名包扫描（见 §4.5），发现冲突即失败。
-5.  **Patch Apply**: 应用必要的 Quilt 补丁（如有）。
-6.  **Config & Build**: 加载 `.config` -> `make defconfig` -> `make -j$(nproc)`。
-7.  **Sign & Release**: 按 §7.3 的 apk 签名体系对 `.apk` 与固件镜像签名，打包上传至 GitHub Releases。
+5.  **Device Apply**: 设备适配层应用（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6）。
+6.  **Config & Build**: 加载 `.config`（设备构建用 `devices/<名>/seed.config`）-> `make defconfig` -> `make -j$(nproc)`。
+7.  **Manifest Verify**: 公共断言 + 设备断言（`scripts/check-manifest.sh`）+ 设备成品镜像存在性（§4.6）。
+8.  **Sign & Release**: 按 §7.3 的 apk 签名体系对 `.apk` 与固件镜像签名，打包上传至 GitHub Releases。
 
 ### 7.2 编译优化与缓存
 
@@ -300,7 +329,7 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 
 CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布**，**本地覆盖快速迭代**，两者步骤保持一致。
 
-*   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验，产物落本地目录。
+*   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
 *   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk；另需 `zstd`）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。**WSL 额外注意**：须剔除 PATH 中的 Windows 条目（`/mnt/c/...`，含空格路径）——GNU find 的 `-execdir` 安全检查会因相对/含空格路径直接报错（实测触发于 rust host 包安装阶段）；`scripts/build-local.sh` 已内置 PATH 净化。
 *   **同步义务**：CI workflow 与本地脚本的步骤必须保持一致，任一侧变更需同步另一侧。
