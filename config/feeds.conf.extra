@@ -7,5 +7,5 @@
 #       因此基座已提供的插件一律不收录（直接 DEPENDS），见 ThirdParty README。
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^e14bf15cfe26d049be1eafa50b05e8cb6589301a
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^3ec8e09d5b7c04ea55a401284d73ce3d9c754082
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^30846b95fdfa9cf1b804616f942fbd1ff491ce25
