@@ -254,7 +254,7 @@ devices/<设备名>/
 3. **同步纪律**：上游发版或 QuartzWrt 发布前 → merge 上游 → rebase 适配分支 → 单包编译 + 验收复验；有价值的改动尽量 PR 回上游，减少长期分叉；
 4. **登记**：fork 清单与同步状态登记在 `QuartzWrt-ThirdParty/docs/FORKS.md`（上游→fork 对应、锁定 tag、改动摘要、上次同步日期）；
 5. **归口**：活跃上游的适配版登记在 `thirdparty`（源指 fork）；分叉深到"再开发"程度（上游停更/大改）时迁 `quartz` Feed 独立包（WP-10 模式）；
-6. **feed 形态**：默认 thirdparty 薄 Makefile 指向 fork；上游本身为 feed/包根形态时，可 fork 后作为独立 feed 行追加进 `feeds.conf.extra`（锁 commit，`scripts/feeds` 扫描深度 5 内有效）。
+6. **feed 形态（三选，本项目采用 ③）**：① thirdparty 薄 Makefile 指向 fork（需复刻上游安装规则，易漂移）；② fork 仓库作为独立 feed 行追加进 `feeds.conf.extra`（零复制，但 feed 数量与 CI 覆盖面增加）；③ **镜像进 `QuartzWrt-ThirdParty`（采用）**——fork 的整仓内容镜像进本仓库子目录（同步脚本 `scripts/sync-forks.sh` + `docs/FORKS.md` 台账），**feed 仍只有 `quartz`/`thirdparty` 两条、锁定沿用 thirdparty commit**；fork 保留为上游跟踪 + 适配分支的改动脉络。
 
 ---
 
