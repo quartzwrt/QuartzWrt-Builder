@@ -18,7 +18,12 @@
 #                                        镜像重建后拒绝复用——陈旧覆盖层会致启动崩溃，
 #                                        QUARTZ_ALLOW_STALE_OVERLAY=1 可强制）
 # 环境变量: PORT=8080（LuCI 宿主端口）、SSH_PORT=2222、APP_PORT=8443（App API
-#           443 宿主端口，WP-5）、MEM=1024、SMP=4
+#           443 宿主端口，WP-5）、MEM=1024、SMP=4、VM_PASS=quartz（ensure_wan 首试密码）
+#
+# 网络：两张网卡——eth0=LAN 段（slirp 192.168.1.0/24，hostfwd 供宿主访问 LuCI/SSH/API）；
+#       eth1=WAN 段（slirp 默认网 10.0.2.0/24，DHCP 10.0.2.15 / 网关 10.0.2.2 / DNS
+#       10.0.2.3），供 VM 自身出网（OpenClash 等网络功能测试）。基座 x86 板级不会自动
+#       生成 WAN，detach 模式就绪后由 ensure_wan 补配一次（幂等）。
 #
 # 进系统后：串口控制台直接是 root shell（全新镜像无密码）；先 passwd 设一个，
 # 再用浏览器访问 http://localhost:$PORT 登录 LuCI。
@@ -109,6 +114,9 @@ fi
 # ---- 网络：slirp 用户网络对齐固件 LAN 网段（默认 lan=192.168.1.1），
 #      显式指定 hostfwd 目标地址，确保转发不依赖 DHCP 租约表 ----
 NETDEV="user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp::${PORT}-192.168.1.1:80,hostfwd=tcp::${SSH_PORT}-192.168.1.1:22,hostfwd=tcp::${APP_PORT}-192.168.1.1:443"
+# WAN 段：第二张网卡走 slirp 默认网络（10.0.2.0/24）——DHCP 发 10.0.2.15、网关
+# 10.0.2.2、DNS 10.0.2.3；VM 侧以 wan(eth1, dhcp) 接入（见 ensure_wan），出网即通
+WANNETDEV="user,id=n1"
 
 QEMU_ARGS=(
 	qemu-system-x86_64
@@ -116,8 +124,72 @@ QEMU_ARGS=(
 	-smp "$SMP" -m "$MEM"
 	-drive "file=$OVERLAY,if=virtio,format=qcow2"
 	-netdev "$NETDEV" -device virtio-net-pci,netdev=n0
+	-netdev "$WANNETDEV" -device virtio-net-pci,netdev=n1
 	-name "quartzwrt-vm"
 )
+
+# ---- WAN 自动配置（幂等）：给 VM 补配 wan(eth1, dhcp) 接口 ----
+# 基座 x86 板级（board.d 02_network / config_generate）不会自动生成 WAN，旧覆盖层
+# 也没有——首次以本脚本（双网卡）启动的实例需补配一次。用 python3(pty) 驱动 ssh
+# 自动应答密码：依次尝试 $VM_PASS（默认 quartz）与空密码（全新镜像 root 空口令）。
+# 无 python3 / 密码均不可用时跳过并提示手动命令（不视为失败）。
+ensure_wan() {
+	command -v python3 >/dev/null 2>&1 || {
+		echo "==> 未安装 python3，跳过 WAN 自动配置（手动命令见脚本注释）"; return 0; }
+	VM_SSH_PORT="$SSH_PORT" VM_PASS="${VM_PASS:-quartz}" python3 - <<'PYEOF'
+import os, pty, select, sys, time
+
+port = os.environ.get("VM_SSH_PORT", "2222")
+passwords = [os.environ.get("VM_PASS", "quartz"), ""]
+remote = """
+if [ ! -e /sys/class/net/eth1 ]; then echo "WAN:NOETH1"; exit 0; fi
+if uci -q get network.wan >/dev/null 2>&1; then echo "WAN:EXISTS"; exit 0; fi
+uci set network.wan=interface
+uci set network.wan.device=eth1
+uci set network.wan.proto=dhcp
+uci commit network
+/etc/init.d/network reload
+/etc/init.d/firewall reload
+echo "WAN:CONFIGURED"
+"""
+cmd = ["ssh", "-p", port,
+       "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+       "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no",
+       "-o", "LogLevel=ERROR", "root@127.0.0.1", remote]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(cmd[0], cmd)
+buf = b""
+sent = 0
+deadline = time.time() + 45
+while time.time() < deadline:
+    r, _, _ = select.select([fd], [], [], 1)
+    if not r:
+        continue
+    try:
+        data = os.read(fd, 4096)
+    except OSError:
+        break
+    if not data:
+        break
+    buf += data
+    if b"password:" in buf.lower() and sent < len(passwords):
+        os.write(fd, (passwords[sent] + "\n").encode())
+        sent += 1
+text = buf.decode(errors="replace")
+if "WAN:CONFIGURED" in text:
+    print("==> WAN 段已配置（wan=eth1, dhcp），DHCP 数秒后出网")
+elif "WAN:EXISTS" in text:
+    print("==> WAN 段已存在，跳过")
+elif "WAN:NOETH1" in text:
+    print("==> 未发现 eth1（单网卡实例？），跳过 WAN 配置")
+else:
+    print("==> WAN 自动配置未完成（SSH 密码均不可用？）。手动执行：")
+    print("    ssh -p %s root@localhost" % port)
+    print("    uci set network.wan=interface; uci set network.wan.device=eth1; \\")
+    print("      uci set network.wan.proto=dhcp; uci commit network; /etc/init.d/network reload")
+PYEOF
+}
 
 if [ "$MODE" = detach ]; then
 	echo "==> 后台启动（串口日志: $SERIAL_LOG）"
@@ -134,6 +206,7 @@ if [ "$MODE" = detach ]; then
 	done
 	if [ "$ready" = 1 ]; then
 		echo "✅ 系统已启动，LuCI 就绪"
+		ensure_wan
 	else
 		echo "❌ 等待超时——串口日志尾部："; tail -30 "$SERIAL_LOG" || true; exit 1
 	fi
@@ -147,6 +220,8 @@ if [ "$MODE" = detach ]; then
 else
 	echo "==> 交互模式：串口控制台直连。全新镜像 root 无密码，直接回车进 shell；"
 	echo "    建议先执行 passwd 设置密码，然后浏览器访问 http://localhost:$PORT"
+	echo "    WAN 出网（eth1, dhcp）手动配置："
+	echo "    uci set network.wan=interface; uci set network.wan.device=eth1; uci set network.wan.proto=dhcp; uci commit network; /etc/init.d/network reload"
 	echo "    退出 QEMU: Ctrl-A 然后 X"
 	sleep 2
 	exec "${QEMU_ARGS[@]}" -nographic
