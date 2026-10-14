@@ -422,6 +422,52 @@ README.md（包内）/ Release notes（构建标识 / 锁定 / 自建源步骤�
 自建源用法：解压 → `packages/` 原样挂静态托管 → 设备加一行索引 URL（索引已签名，设备端 apk 验签）。
 与固件 Release 用**同一 tag**，便于溯源"哪个固件版本配哪份 feed"。
 
+---
+
+## 13. 设备支持范围与选择（menuconfig 式层级）
+
+### 13.1 三层选择（CI 与本地一致）
+
+基座（ImmortalWrt 25.12 @ 锁定 commit）支持 **94 个目标/子目标、2259 个设备**。GitHub Actions 的
+下拉是**静态列表**，装不下设备级枚举，因此按 menuconfig 的层级拆成：
+
+| menuconfig | CI 输入 | 取值 |
+| :--- | :--- | :--- |
+| Target System + Subtarget | `target`（**choice，94 项全量**） | 如 `x86/64`、`rockchip/armv8`、`bcm27xx/bcm2711`… |
+| Target Profile | `profile`（string） | ①**留空** = 该目标**全部设备**（`ALL_PROFILES`+`MULTI_PROFILE`，与官方发布同款出图）；②设备 profile 名（只构该设备）；③**设备适配层名**（走 `devices/<名>/`：基座补丁 + 投放文件 + 专用种子） |
+
+- 架构由基座元数据解析（`scripts/dump-target-info.pl`），打进运行日志与 job summary；
+- **运行期会把所选目标的设备清单（profile + 描述）写进 job summary**，便于照抄 profile 名；
+- 本地等价：`scripts/build-local.sh --device <适配层名>`（已适配设备）；
+  通用目标走 CI 路径（或在本地按 §7.4 手工注入目标符号）。
+
+### 13.2 已验证清单 vs 通用模式
+
+| 类别 | 目标/设备 | 种子 | 断言 |
+| :--- | :--- | :--- | :--- |
+| **定案目标** | `x86/64`（generic） | `config/seed.config`（按 diffconfig 回填） | `check-manifest.sh` 公共断言（quartz-defaults 全依赖 + docker 反向断言） |
+| **设备适配层** | `rockchip/armv8` → `erya_fnet-3399`（WP-11） | `devices/erya_fnet-3399/seed.config` | 公共断言 + 设备断言（`DEVICE_MANIFEST_PACKAGES`）+ 镜像 glob |
+| **通用模式** | 其余任意目标/设备 | `config/seed-generic.config`（**只带 quartz 核心**：主题/配置/仪表盘/daemon/app-api；**不带 quartz-defaults**——它会拉起 thirdparty 预装，而 bandix 等含按架构预编译二进制、非全架构可用） | 仅"成品镜像存在 + 4 个核心包在 manifest"；**不承诺设备级验证** |
+
+通用模式的已知边界（预期，不是缺陷）：① 需要 Go 的组件（`quartz-daemon`/`quartz-app-api`）在
+Go 不支持的目标架构上会构建失败（如 32 位 powerpc）；② `MULTI_PROFILE` 全设备出图时，小 Flash
+机型可能因体积超限失败；③ 未做设备侧刷机验证——**要纳入"已验证清单"须走 TDD §4.6 设备适配层
++ 真机验收**（照 `devices/erya_fnet-3399/` 的结构复制改造）。
+
+### 13.3 设备页（可浏览清单）
+
+`scripts/gen-devices-page.sh` 生成（随 feed 发布托管，`publish-feed-all.sh` 默认调用）：
+
+```
+<发布根>/devices/index.html            94 个目标（架构 + 设备数 + 链接）
+<发布根>/devices/<board>-<subtarget>.html   该目标全部设备（profile 名 + 描述）
+<发布根>/devices/devices.json          机读清单（target → arch → devices）
+```
+
+线上：`https://sources.quartzwrt.org/quartz-feed/devices/`（主页面"支持设备"一节已互链）。
+注意 `dump-target-info.pl` **必须在基座树根目录执行**（它按相对路径读 `tmp/.targetinfo`；
+缺元数据时先 `make prepare-tmpinfo`）——用绝对路径从别处调用会静默返回空（实测踩中）。
+
 ## 10. 开放事项
 
 - 阶段 1 已执行（NAS，2026-10-15，见 §9.3）；R2/S3 Secrets 仅在选择公网托管/阶段 2 时才需要。
