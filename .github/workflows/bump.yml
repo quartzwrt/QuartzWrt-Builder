@@ -81,7 +81,7 @@ jobs:
 
           # 注意：heredoc 用**引号定界符**——body 含 markdown 反引号，未加引号会被
           # shell 当命令替换执行（首次运行实测踩中：`thirdparty: command not found`）。
-          # `${{ }}` 由 Actions 引擎在交给 shell 前替换，引号定界符不影响它。
+          # Actions 表达式由引擎在交给 shell 前替换，引号定界符不影响它。
           cat > /tmp/pr-body.md <<'EOF'
           定时锁定检查发现上游更新：
 
