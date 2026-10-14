@@ -2,7 +2,8 @@
 # QuartzWrt manifest 校验（build-local.sh 与 CI 共用，防两侧漂移）
 #
 # 用法: scripts/check-manifest.sh <manifest 文件> [设备名]
-#   - 公共断言：quartz 五关键包在列；docker 栈反向断言不在列（用户拍板移出预装，2026-10-12）
+#   - 公共断言：quartz-defaults DEPENDS 全清单在列（核心组件 + thirdparty 预装）；
+#     docker 栈反向断言不在列（用户拍板移出预装，2026-10-12）
 #   - 设备断言（可选）：devices/<设备名>/device.env 的 $DEVICE_MANIFEST_PACKAGES 在列
 #
 # 退出码非 0 即校验失败。
@@ -18,8 +19,12 @@ echo "manifest: $MANIFEST"
 
 fail=0
 
-# 公共：关键包必须在列
-for p in quartz-defaults luci-theme-quartz luci-app-dashboard luci-app-quartz-config luci-app-openclash; do
+# 公共：关键包必须在列（= quartz-defaults Makefile 的 DEPENDS 清单，增删依赖须同步本列表）
+# 组成：quartz feed 核心（主题/配置/仪表盘/daemon/app-api）+ thirdparty 预装
+# （bandix 套件、runtime-resources；WP-7 D2/D5）+ 基座 feed（openclash）
+for p in quartz-defaults luci-theme-quartz luci-app-quartz-config luci-app-dashboard \
+         quartz-daemon quartz-app-api luci-app-openclash \
+         bandix luci-app-bandix quartz-runtime-resources; do
   if grep -q "^${p} " "$MANIFEST"; then
     echo "OK: $p"
   else

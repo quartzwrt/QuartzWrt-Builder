@@ -79,7 +79,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Check duplicate packages across feeds
+      - name: Check duplicate packages / base-feed shadowing (docs/TDD.md §4.5)
         working-directory: immortalwrt
         run: bash ../scripts/check-duplicate-packages.sh feeds
 

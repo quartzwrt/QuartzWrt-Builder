@@ -213,7 +213,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 
 1.  **默认规则**：在 `thirdparty` Feed 中**重命名冲突包**（如 `luci-app-docker-thirdparty`），从源头消除歧义。
 2.  **兜底手段**：`feeds.conf` 中先列出的 Feed 优先级更高（`quartz` 在前即可覆盖 `thirdparty`）。但历史上 OpenWrt 在重复包的依赖解析上出过 bug，顺序只作为最后手段，不可依赖。
-3.  **CI 强制检查**：流水线中增加同名包扫描步骤——比对两个 Feed 的包目录名，或解析 `scripts/feeds install` 输出的 duplicate 警告，发现冲突直接让构建失败。
+3.  **CI 强制检查**：流水线中增加同名包扫描步骤（`scripts/check-duplicate-packages.sh`，本地 `build-local.sh` 与 CI 共用），发现冲突直接让构建失败。扫描三类冲突：① `quartz` ↔ `thirdparty` 同名（PKG_NAME）；② **我方包目录名与基座 feed 重复**——`include/scan.awk` 按 Makefile 路径最后一段（目录名）去重，重复时整包被静默丢弃（WORKPLAN 坑位 #46）；③ **我方 PKG_NAME 与基座 feed 包重复**——feeds 安装「先列者胜」（基座 feed 在 `feeds.conf` 中先列），基座版本胜出、我方成死代码（WORKPLAN 坑位 #11）。扫描深度/过滤与构建系统一致（`include/scan.mk` 的 `SCAN_DEPTH=5` + `BuildPackage|KernelPackage|Build/DefaultTargets`）。**预装包 manifest 断言**：`quartz-defaults` DEPENDS 增删须同步 `scripts/check-manifest.sh` 的公共断言列表（本地/CI 共用）。
 
 ### 4.6 设备适配层（devices/，2026-10-14 立）
 
@@ -321,10 +321,10 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 1.  **Checkout**: 拉取 `QuartzWrt-Builder` 与 ImmortalWrt 基座（锁定分支 + 精确 commit，见 §4.2）。
 2.  **Feeds Inject**: 在基座默认 `feeds.conf` **末尾追加** `quartz` 与 `thirdparty` 两行（保留基座 packages/luci 等 feed，不得整体覆写，否则 luci-base 等基础包缺失；锁定 commit，见 §4.2）。
 3.  **Update & Install**: 执行 `./scripts/feeds update -a && ./scripts/feeds install -a`。
-4.  **Duplicate Check**: 同名包扫描（见 §4.5），发现冲突即失败。
+4.  **Duplicate Check**: 同名包 / 基座遮蔽扫描（含基座 feed，见 §4.5），发现冲突即失败。
 5.  **Device Apply**: 设备适配层应用（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6）。
 6.  **Config & Build**: 加载 `.config`（设备构建用 `devices/<名>/seed.config`）-> `make defconfig` -> `make -j$(nproc)`。
-7.  **Manifest Verify**: 公共断言 + 设备断言（`scripts/check-manifest.sh`）+ 设备成品镜像存在性（§4.6）。
+7.  **Manifest Verify**: 公共断言（= `quartz-defaults` DEPENDS 全清单在列 + docker 反向断言）+ 设备断言（`scripts/check-manifest.sh`）+ 设备成品镜像存在性（§4.6）。
 8.  **Sign & Release**: 按 §7.3 的 apk 签名体系对 `.apk` 与固件镜像签名，打包上传至 GitHub Releases。
 
 ### 7.2 编译优化与缓存
