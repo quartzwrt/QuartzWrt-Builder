@@ -129,8 +129,11 @@ prune_and_resign() {
     for apkf in "$dst"/*.apk; do
       [ -f "$apkf" ] || continue
       d="$("$APK" adbdump "$apkf" 2>/dev/null)"
-      n="$(printf '%s\n' "$d" | sed -n 's/^  - name: //p' | head -1)"
-      v="$(printf '%s\n' "$d" | sed -n 's/^    version: //p' | head -1)"
+      # 注意：**单包** adbdump 的元信息是 `  name:`/`  version:`（info 块，2 空格无破折号），
+      # 而**索引**才是 `  - name:`；单包里带破折号的 `  - name:` 是文件列表条目（lib/etc）——
+      # 用错模式会静默匹配到文件名、清理失效（实测踩中：x86 feed 残留 26 个多版本包）
+      n="$(printf '%s\n' "$d" | sed -n 's/^  name: //p' | head -1)"
+      v="$(printf '%s\n' "$d" | sed -n 's/^  version: //p' | head -1)"
       [ -n "$n" ] && [ -n "$v" ] && printf '%s %s %s\n' "$n" "$v" "$apkf"
     done
   )
