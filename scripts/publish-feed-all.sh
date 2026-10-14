@@ -80,10 +80,16 @@ if [ "$MAKE_DEVICES" = 1 ]; then
     || echo "WARN: 设备页生成跳过（基座树缺目标元数据？先 make prepare-tmpinfo）"
 fi
 
-# 软件源页面
+# 软件源页面（+ 可选的站点根精简页——必须在 rsync **之前**生成，才能随同步上传）
 if [ "$MAKE_PAGE" = 1 ]; then
   step "生成软件源页面（$URL）"
-  bash "$BUILDER_DIR/scripts/gen-feed-page.sh" "$DEST" --url "$URL"
+  if [ "$ROOT_PAGE" = 1 ]; then
+    feed_path="$(basename "${URL%/}")"; [ -n "$feed_path" ] || feed_path="quartz-feed"
+    bash "$BUILDER_DIR/scripts/gen-feed-page.sh" "$DEST" --url "$URL" --feed-path "$feed_path" \
+      --root-out "$DEST/root-index.html"
+  else
+    bash "$BUILDER_DIR/scripts/gen-feed-page.sh" "$DEST" --url "$URL"
+  fi
 fi
 
 # 一次性同步（含页面）
@@ -104,9 +110,8 @@ fi
 if [ "$ROOT_PAGE" = 1 ]; then
   [ -n "$RSYNC_DEST" ] || { echo "错误：--root-page 需要与 --rsync 同用（站点根由 rsync 目标推导）" >&2; exit 1; }
   feed_path="$(basename "${URL%/}")"; [ -n "$feed_path" ] || feed_path="quartz-feed"
-  step "站点根精简页 → $feed_path/ 入口"
-  bash "$BUILDER_DIR/scripts/gen-feed-page.sh" "$DEST" --url "$URL" --feed-path "$feed_path" \
-    --root-out "$DEST/root-index.html"
+  step "站点根页 → $feed_path/ 入口（原文件备份为 index.html~）"
+  [ -f "$DEST/root-index.html" ] || { echo "错误：缺 $DEST/root-index.html（页面生成失败？）" >&2; exit 1; }
   remote="${RSYNC_DEST%%:*}"; rpath="${RSYNC_DEST#*:}"; rroot="$(dirname "${rpath%/}")"
   cmd="cp -b '$rpath/root-index.html' '$rroot/index.html' && rm -f '$rpath/root-index.html' && ls -l '$rroot/index.html' '$rroot/index.html~' 2>/dev/null | tail -2"
   if [ -n "${SSH_PASS:-}" ]; then
