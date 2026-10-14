@@ -102,8 +102,11 @@ fi
 OUT="$BUILDER_DIR/../release-out/$TAG"
 step "整理发布产物 → $OUT"
 rm -rf "$OUT"; mkdir -p "$OUT"
-find "$TARGET_BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' \
-  -o -name '*.buildinfo' -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} "$OUT/" \;
+for bin in "$TARGET_BIN" ${EXTRA_BINS[@]+"${EXTRA_BINS[@]}"}; do
+  [ -d "$bin" ] || continue
+  find "$bin" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' \
+    -o -name '*.buildinfo' -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} "$OUT/" \;
+done
 if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
   # 多架构发布（x86_64 + ARM；构建树内两套产物共存，缺哪套自动跳过）+ 软件源页面
   bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed"
