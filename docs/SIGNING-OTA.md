@@ -160,7 +160,7 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 
 | 阶段 | 动作 | 效果 | 前置条件（翻转条件） |
 | :--- | :--- | :--- | :--- |
-| **阶段 1（本次落地）** | `seed.config` 设 `CONFIG_QUARTZ_FEED_BASE_URL="https://<托管根>"` → 重建 | 固件经 `quartz-feed.list` 接入自有 feed（quartz/thirdparty/目标包），索引签名由预置公钥校验；`CONFIG_FEED_*=m` **保持不变**（官方 distfeeds 里那三行仍是注释，不复活死链） | ① feed 已发布且 `apk update` 在干净设备上验签通过；② 发布件由稳定密钥签名（`verify-signing.sh` 全绿）；③ URL 可匿名 HTTPS 访问（或明示 HTTP 风险） |
+| **阶段 1（✅ 已执行 2026-10-15）** | `seed.config` 设 `CONFIG_QUARTZ_FEED_BASE_URL="http://10.0.0.110:880/quartz-feed"`（自建 NAS）→ 重建 | 固件经 `quartz-feed.list` 接入自有 feed（quartz/thirdparty/目标包），索引签名由预置公钥校验；`CONFIG_FEED_*=m` **保持不变**（官方 distfeeds 里那三行仍是注释，不复活死链） | ① feed 已发布且 `apk update` 在干净设备上验签通过（**实测：VM `apk update` 10529 包无 UNTRUSTED + `apk add geo2txt` 从 NAS 装成功**）；② 发布件由稳定密钥签名（`verify-signing.sh` 9/9）；③ URL 可匿名访问（LAN HTTP，签名保护完整性） |
 | **阶段 2（后续，含全量镜像）** | 全量发布（`--feeds all` + 官方 base/luci/packages/... 镜像）→ `CONFIG_VERSION_REPO="https://<托管根>"` + `CONFIG_FEED_{quartz,thirdparty}=y`（video 视上游情况） | 固件完全自包含：distfeeds 全指向自有镜像，可复现升级；ASU/OTA 前提 | ① 阶段 1 稳定运行；② 全量镜像同步管道（约 3.45GB/x86_64 量级）与缓存策略就绪；③ 官方 feed 的镜像时效性监控（避免比锁定基座旧/新错配） |
 
 > 注意：**不要**只把 `CONFIG_FEED_*=y` 翻回来——那会让 distfeeds 重新指向官方
@@ -276,6 +276,22 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 ③ 演练的 `apk upgrade` 顺带验证了"自有 feed 里目标包版本与镜像一致"（内核/kmod 无跨版本漂移）。
 
 ---
+
+### 9.3 NAS 托管上线 + 阶段 1 翻转（2026-10-15）
+
+- **环境**：fnOS + 宝塔面板（Docker/openresty）；站点 `http://10.0.0.110:880` ↔ 站点根
+  `/vol2/1000/quartzwrt`（实测映射）；**443 为 fnOS 系统 UI**（302→`:5667`），与本站无关。
+- **发布**：feed 落在站点根下 `quartz-feed/`（专用子目录，`--rsync` 的 `--delete` 不会波及站点文件）；
+  267 文件 / 192M 全量到位。
+- **自检**：`scripts/check-feed-live.sh http://10.0.0.110:880/quartz-feed` → **4/4 PASS**。
+- **翻转**：`CONFIG_QUARTZ_FEED_BASE_URL` 写入 x86 + FNet3399 双种子（Builder `5733815`）。
+- **构建**（build id `20261015T0230Z-nas-flip`）：`verify-signing.sh` **9/9**；镜像级核验（debugfs）
+  feed 三行 / `/etc/quartz-ota.url` / build id 均在位。
+- **设备侧实测**（新镜像全新 QEMU 实例）：`apk update` 接受 NAS 签名源（10529 包，无 UNTRUSTED）；
+  **`apk add geo2txt` 从 NAS 安装成功**；`quartz-ota-update --check` **零配置**（读
+  `/etc/quartz-ota.url`）清单验签有效、按 build id 正确判定。
+- **运维纪律（实测教训）**：包版本戳含"当日秒数"（`luci.mk findrev`）——**每次重建都会产生新版本**，
+  因此 **feed 必须与固件同批发布**（先 build 后 publish），否则设备侧"可用包/OTA 清单"会落后于镜像。
 
 ## 10. 开放事项
 
