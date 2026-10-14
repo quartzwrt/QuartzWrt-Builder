@@ -293,10 +293,83 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 - **运维纪律（实测教训）**：包版本戳含"当日秒数"（`luci.mk findrev`）——**每次重建都会产生新版本**，
   因此 **feed 必须与固件同批发布**（先 build 后 publish），否则设备侧"可用包/OTA 清单"会落后于镜像。
 
+---
+
+## 11. 本地 ↔ CI 构建一致性，与「本地构建 → GitHub Release」发布路径
+
+### 11.1 签名一致性：**已统一（同一把稳定密钥）**
+
+本地构建与 CI 构建注入的是**同一把长期密钥**（CI 走 GitHub Secrets，本地走
+`QUARTZ_SIGNING_DIR`；`inject-signing-key.sh` 还会与 `quartz-defaults` 预置公钥比对，
+错配即构建失败）——因此：
+
+| 产物 | 签名者 | 本地与 CI 是否一致 |
+| :--- | :--- | :--- |
+| 各 feed 的 `packages.adb` 索引 | apk EC 稳定密钥（key id `6947a869aad621cb2a8c0765c39ea104`） | ✅ 同一把 → 设备对两边产物**互认** |
+| OTA 版本清单 `ota/<board>/<subtarget>.json` | usign/Ed25519 稳定密钥（fingerprint `00b0cef78d463a09`） | ✅ 同一把 |
+| 固件镜像本体 | apk 时代**无可用签名路径**（§1.1）——真实性由"清单签名 + 镜像 sha256"承担 | ✅ 同一信任链 |
+
+结论：**"两边签名一致"不需要额外工作**，这是 WP-9 稳定密钥设计的直接结果；设备不需要区分
+产物来自本地还是 CI。
+
+### 11.2 包版本一致性：**同锁定下逐字相同（确定性，非构建时刻）**
+
+luci 包的版本戳由 `luci.mk findrev` 生成：`%y.%j`（提交日）+ 当日秒数 + 短 hash，
+取自 **feed 提交时间戳**（`git log -1 --format=%ct`；feed 为 `^SHA` 浅克隆，取 tip）。
+**与构建时刻无关**——因此本地与 CI 在同锁定下产出的包版本号完全一致。实测（feed
+`3dbeb3b`）：手工按同公式算出 `26.287.58460~3dbeb3b`，与本地构建产出的
+`luci-theme-quartz-26.287.58460~3dbeb3b.apk` / `luci-app-dashboard-26.287.58460~3dbeb3b.apk`
+逐字相符。
+
+含义：本地/CI 两边的包可以**互相升级、互为替代**，不会出现"版本互踩"（旧隐患见坑位 #49——
+那是**未提交改动 + 残留旧包**造成的，与构建时刻无关）。
+
+### 11.3 镜像字节级一致（可复现构建）：**可做到同机一致，跨机不承诺**
+
+基座支持 `SOURCE_DATE_EPOCH`（`rules.mk`/`image.mk`/`rootfs.mk` 据此固定包与镜像内
+时间戳、分区 GUID 派生值；`PKG_SOURCE_DATE_EPOCH` 亦由它统一）。用法：
+
+```bash
+QUARTZ_SOURCE_DATE_EPOCH=1760000000 scripts/build-local.sh     # 本地
+# CI：build.yml 同法传入（或发布流程里用同一 epoch，如发布 tag 的提交时间）
+```
+
+- **同机重复构建**：可逐字节一致（校验 `sha256sums`）。
+- **跨机（WSL ↔ GitHub runner）**：宿主工具链/路径不同，**不承诺**逐字节一致——
+  真正需要"跨机可复现"时需固定宿主环境（容器化构建机）。
+- 因此发布件的"一致性"承诺落在 §11.1（签名）与 §11.2（版本）两层；镜像 sha256 以
+  每次发布的 `sha256sums` 为准（随 Release 提供）。
+
+### 11.4 本地构建 → GitHub Release（`scripts/release-local.sh`）
+
+```bash
+# 发布构建（构建标识 = tag，OTA 版本比较一致）+ 校验 + 发 Release
+QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/release-local.sh --tag v0.1.0 --build
+# 已有构建树（不重编）：只打包 + 发 Release；--dry-run 先演练
+scripts/release-local.sh --tag v0.1.0 --dry-run
+# 同时把 feed 发布到 NAS（复用 --rsync/SSH_PASS 机制）
+scripts/release-local.sh --tag v0.1.0 --build --publish-feed --rsync user@nas:/path/quartz-feed
+# 设备构建发布
+scripts/release-local.sh --tag v0.1.0 --build --device erya_fnet-3399
+```
+
+要点：
+- **硬门禁**：发布前必跑 `verify-signing.sh`（索引签名 key id / 公钥载荷 / feed 行与 OTA 源），
+  不过不发；
+- **资产**：镜像 `*.img.gz`、`*.manifest`、`*.buildinfo`、`sha256sums`、`profiles.json`、
+  `ota-<board>-<subtarget>.json(.sig)`，外加 **feed 快照 `quartz-feed-<tag>.tar.gz`**（不含镜像；
+  解压后根即 URL 根，供自建源/离线）；
+- **Release 说明**自动生成（构建标识/基座与 feed 锁定/签名 key id/软件源 URL/安装与升级方法）；
+- 已存在同名 Release 时用 `gh release upload --clobber` 覆盖资产（可重复发布）；
+- **发布纪律**：feed 与固件**同批发布**（包版本戳与 OTA 清单都绑定这一次构建；NAS/Release
+  的 feed 落后于镜像时，`quartz-ota-update --check` 会把旧镜像当"新版本"提示）。
+
+CI 侧等价：`build.yml` 同样注入密钥并校验；`publish=yes` 时把同一套 feed/OTA 树同步到
+S3/R2 兼容托管（`PUBLISH_S3_*`）。**两条通道产物互认**，用哪条发布取决于便利性。
+
 ## 10. 开放事项
 
-- 托管凭据（R2/S3 Secrets）与阶段 1 URL 的实际填写（`seed.config`）由用户/维护者执行
-  （§5 翻转条件已给全）；填好后 `#41` 的"App 软件面可用"才算真正闭环。
+- 阶段 1 已执行（NAS，2026-10-15，见 §9.3）；R2/S3 Secrets 仅在选择公网托管/阶段 2 时才需要。
 - 发布后需在干净设备上复验一次"`apk update` 验签通过 + `apk upgrade` 升级"（演练已用
   本地 HTTP 源证明机制，公网 HTTPS 源属同类）。
 - 阶段 2 全量镜像的同步管道（增量/缓存/时效监控）尚未实现。

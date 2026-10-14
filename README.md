@@ -22,6 +22,8 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签）；`--rsync` 直推 NAS 等静态托管 |
 | `scripts/check-feed-live.sh` | WP-9 发布后自检：托管根可达性 / 索引签名 key id / OTA 清单验签 / 抽查包可取（#41 阶段 1 翻转前置） |
 | `scripts/ota-drill.sh` | WP-9 端到端演练：独立 QEMU 实例上跑「包升级链路 + 固件 OTA 链路」（含异钥反例） |
+| `scripts/release-local.sh` | WP-9 发布：本地构建 → 签名校验（硬门禁）→ 打包 → `gh release create`（含 feed 快照与 OTA 清单） |
+| `scripts/ssh-pass.py` | pty 驱动 ssh/rsync 密码认证（NAS 等无 key 远端发布用；密码仅走环境变量） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 切换设备目标；`publish` 发布 feed/OTA） |
 | `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/双 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
@@ -74,8 +76,14 @@ scripts/check-feed-live.sh http://<nas-ip>/quartzwrt
 scripts/ota-drill.sh            # 证据落 ../vm/ota-drill/
 ```
 
+# ⑥ 本地构建 → GitHub Release（发布路径；本地与 CI 同一把签名密钥，产物互认）
+QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/release-local.sh --tag v0.1.0 --build
+#    资产：镜像/manifest/sha256sums/profiles.json/OTA 清单 + feed 快照 tar.gz；--dry-run 可先演练
+#    同时发布 feed 到 NAS：... --publish-feed --rsync user@nas:/path/quartz-feed
+
 CI：`gh workflow run build.yml -f publish=yes`（需签名 Secrets；托管凭据 `PUBLISH_S3_*` 可选，
 未配置时 feed 树随 artifact 留档）。锁定自动检查/开 PR：`.github/workflows/bump.yml`（每周一 + 手动）。
+本地与 CI 的一致性（签名/版本/可复现构建）见 `docs/SIGNING-OTA.md` §11。
 
 ## 基座升级 / 追随新版
 

@@ -19,6 +19,11 @@
 #   QUARTZ_WORK_DIR       构建工作目录（默认 <Builder 仓库>../build）
 #   QUARTZ_ARTIFACTS_DIR  产物输出目录（默认 <Builder 仓库>../artifacts-local[，设备构建加 /<设备名>]）
 #   QUARTZ_DEVICE         等价于 --device（命令行优先）
+#   QUARTZ_BUILD_ID       构建标识（随镜像 /etc/quartz-build-id；发布构建建议用发布 tag，
+#                         如 QUARTZ_BUILD_ID=v0.1.0——OTA 版本比较依据，见 docs/SIGNING-OTA.md）
+#   QUARTZ_SOURCE_DATE_EPOCH  可复现构建：固定 SOURCE_DATE_EPOCH（基座据此固定包/镜像
+#                         内时间戳；本地与 CI 用同一值可让同机重复构建逐字节一致）
+#   QUARTZ_SIGNING_DIR    签名密钥目录（见 scripts/inject-signing-key.sh；发布构建必给）
 #   JOBS                  make 并行度（默认 16；本机 15GB 内存勿再调高）
 
 set -euo pipefail
@@ -146,11 +151,20 @@ bash "$BUILDER_DIR/scripts/inject-signing-key.sh" "$BASE_DIR"
 
 # 5d. 构建标识：随镜像投放 /etc/quartz-build-id（TOPDIR/files 原样覆盖进 rootfs），
 #     publish-feed.sh 的 OTA 清单与设备端 quartz-ota-update 以它判定版本新旧。
+#     发布构建建议 QUARTZ_BUILD_ID=<发布 tag>（本地与 CI 同 tag → 同标识，OTA 不误判）。
 step "写入构建标识（/etc/quartz-build-id）"
-BUILD_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$BUILDER_DIR" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+BUILD_ID="${QUARTZ_BUILD_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$BUILDER_DIR" rev-parse --short HEAD 2>/dev/null || echo nogit)}"
 mkdir -p "$BASE_DIR/files/etc"
 printf '%s\n' "$BUILD_ID" > "$BASE_DIR/files/etc/quartz-build-id"
 echo "build id: $BUILD_ID"
+
+# 5e. 可复现构建（可选）：固定 SOURCE_DATE_EPOCH——基座 rules.mk/image.mk/rootfs.mk 据此
+#     固定包与镜像内时间戳（分区 GUID 也由它派生）。本地与 CI 用同一 epoch 时，
+#     同机重复构建可逐字节一致、跨机差异收敛（跨机逐字节一致不承诺：宿主工具链不同）。
+if [ -n "${QUARTZ_SOURCE_DATE_EPOCH:-}" ]; then
+  export SOURCE_DATE_EPOCH="$QUARTZ_SOURCE_DATE_EPOCH"
+  echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH（可复现构建模式）"
+fi
 
 # 6. 配置：种子 + defconfig 补齐默认项
 step "加载 seed.config（${DEVICE:-x86_64 默认}）并 defconfig"
