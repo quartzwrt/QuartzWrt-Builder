@@ -11,6 +11,7 @@
 #
 # 用法:
 #   scripts/release-local.sh --tag v0.1.0 [--build] [--device erya_fnet-3399]
+#                            [--also-device <名>]   # 额外带上另一设备的镜像/manifest（同构建树内已有产物）
 #                            [--publish-feed [--rsync user@nas:/path/quartz-feed]]
 #                            [--draft] [--notes FILE] [--no-feed-tarball] [--dry-run]
 #
@@ -36,6 +37,8 @@ DRAFT=""
 NOTES_FILE=""
 FEED_TARBALL=1
 DRY_RUN=0
+ALSO_DEVICE=""
+EXTRA_BINS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,6 +51,7 @@ while [ $# -gt 0 ]; do
     --notes) NOTES_FILE="$2"; shift 2 ;;
     --no-feed-tarball) FEED_TARBALL=0; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --also-device) ALSO_DEVICE="$2"; shift 2 ;;
     --base-dir) BASE_DIR="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（用法见 --help）" >&2; exit 1 ;;
@@ -84,6 +88,15 @@ fi
 # 2. 签名校验（硬门禁）
 step "签名校验（未通过不发布）"
 bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${ARCH_PKGS:-x86_64}" --targets "$BOARD/$SUB"
+
+# 附带设备产物（同一构建树内已构建的其它目标）
+if [ -n "$ALSO_DEVICE" ]; then
+  # shellcheck disable=SC1090
+  set -a; . "$BUILDER_DIR/devices/$ALSO_DEVICE/device.env"; set +a
+  EXTRA_BINS+=("$BASE_DIR/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET")
+  echo "附带设备产物：$ALSO_DEVICE → $DEVICE_TARGET/$DEVICE_SUBTARGET"
+  set +a
+fi
 
 # 3. 发布目录：产物 + feed + OTA 清单
 OUT="$BUILDER_DIR/../release-out/$TAG"
