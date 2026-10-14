@@ -107,9 +107,14 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
   （固件拼接约定 = `<根>/packages/...`），**根 URL 不要带尾斜杠**。
 - **HTTP 或 HTTPS 都可**：包完整性由**索引签名**保证（HTTP 只暴露"有哪些包"的元数据）；
   公网暴露建议 HTTPS（NAS 自签证书在设备端无 CA 信任，需用有效证书或用 HTTP + 仅限内网）。
-- **同步**：`publish-feed.sh --rsync <目标>`（`-av --delete`，把旧版本清理同步到远端）。
-  目标可以是 SSH 形态（`user@nas:/volume1/web/quartzwrt`）或已挂载的本地路径
-  （SMB/NFS 挂载点）。**目标必须是专用目录**——`--delete` 会清理该目录内不属于本次发布的内容。
+- **同步**：`publish-feed.sh --rsync <目标>`（`-av --delete --chmod=D755,F644`，把旧版本清理
+  同步到远端）。目标可以是 SSH 形态（`user@nas:/volume1/web/quartzwrt/quartz-feed`）或已挂载的
+  本地路径（SMB/NFS 挂载点）。**目标必须是专用目录**——`--delete` 会清理该目录内不属于本次
+  发布的内容（别指向网站根，避免误删站点文件）。
+  - **远端要密码时**（NAS 未放 SSH key、甚至没有 home 目录）：`SSH_PASS='<密码>' scripts/publish-feed.sh ... --rsync user@host:/path`
+    ——经 `scripts/ssh-pass.py`（pty 助手，自动应答主机密钥确认与密码提示；密码只走环境变量、不落盘）。
+  - **手动上传**（不想给自动化凭据时）：`publish-feed.sh` 只生成目录，把该目录（或打成的 zip）
+    经宝塔面板/共享目录拷到站点目录即可；注意保持目录结构原样、解压后顶层目录名 = URL 路径段。
 - **Web 服务器要求**：原样提供文件（勿改写/勿转码）、保持文件名大小写、允许 `.adb` 后缀、
   不需要目录列表；gzip 等透明压缩无碍（apk 走 HTTP 正常解码）。
 - **CI 限制（重要）**：GitHub Actions runner 在公网，**够不到家里的 NAS**——NAS 托管时

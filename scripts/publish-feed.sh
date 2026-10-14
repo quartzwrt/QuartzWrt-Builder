@@ -251,13 +251,20 @@ step "发布记录"
 sed -n '1,20p' "$DEST/PUBLISH.txt"
 
 if [ -n "$RSYNC_DEST" ]; then
-  step "同步到静态托管：$RSYNC_DEST（rsync -av --delete）"
+  step "同步到静态托管：$RSYNC_DEST（rsync -av --delete --chmod=D755,F644）"
   command -v rsync >/dev/null || { echo "错误：缺少 rsync" >&2; exit 1; }
   case "$RSYNC_DEST" in
     *:*) : ;;  # 远程（ssh）形态
     *) [ -d "$RSYNC_DEST" ] || { echo "错误：本地目标目录不存在：$RSYNC_DEST" >&2; exit 1; } ;;
   esac
-  rsync -av --delete "$DEST"/ "$RSYNC_DEST"/
+  RSYNC_ARGS=(-av --delete --chmod=D755,F644 "$DEST"/ "$RSYNC_DEST"/)
+  if [ -n "${SSH_PASS:-}" ] && [ -x "$BUILDER_DIR/scripts/ssh-pass.py" ]; then
+    # 远端需密码（如 NAS 未放 SSH key）：经 pty 助手驱动 rsync 的密码提示
+    echo "  （SSH_PASS 已设：经 scripts/ssh-pass.py 驱动密码认证）"
+    python3 "$BUILDER_DIR/scripts/ssh-pass.py" -- rsync "${RSYNC_ARGS[@]}"
+  else
+    rsync "${RSYNC_ARGS[@]}"
+  fi
   echo "  OK：已同步（远端内容与本次发布一致，含同名旧版本清理）"
 fi
 
