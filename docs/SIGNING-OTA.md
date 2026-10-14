@@ -365,7 +365,14 @@ scripts/release-local.sh --tag v0.1.0 --build --device erya_fnet-3399
   的 feed 落后于镜像时，`quartz-ota-update --check` 会把旧镜像当"新版本"提示）。
 
 CI 侧等价：`build.yml` 同样注入密钥并校验；`publish=yes` 时把同一套 feed/OTA 树同步到
-S3/R2 兼容托管（`PUBLISH_S3_*`）。**两条通道产物互认**，用哪条发布取决于便利性。
+S3/R2 兼容托管（`PUBLISH_S3_*`）。**两条通道产物互认**，用哪条发布取决于便利性——
+TDD §7.1/§7.4 已按此修订（2026-10-15 用户拍板：本地构建结果也可正常发 Release）。
+
+**本地发布的两点纪律**：①**必须注入稳定密钥**（`QUARTZ_SIGNING_DIR`）——否则基座会用临时密钥，
+`verify-signing.sh` 会直接拦下（这正是硬门禁的意义）；②发布构建建议用**较干净的构建树**
+（至少清掉 `bin/packages/<arch>/{quartz,thirdparty}/*.apk` 同族残留，坑位 #49；CI 通道天然是
+干净检出）。增量构建的同名旧包由 `publish-feed.sh` 清理+重签索引兜底，镜像侧版本戳由 feed
+提交派生（同锁定即同名同版本，不产生"旧包胜出"）。
 
 ## 10. 开放事项
 

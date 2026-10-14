@@ -315,7 +315,8 @@ devices/<设备名>/
 
 ### 7.1 自动化构建流水线 (GitHub Actions)
 
-CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，禁止将本地构建产物作为发布件分发。本地构建用于开发迭代与调试（见 §7.4），不替代 CI。**触发策略（2026-10-12 起）：CI 仅手动触发（`workflow_dispatch`），不随 push/PR 自动运行；定时构建取消（基座与双 Feed 已锁定 SHA，计划构建只会重复同一状态）；日常构建验证走本地 `scripts/build-local.sh`，CI 保留给发布前 / 基础设施重大变更后的权威验收。**
+**发布通道（2026-10-15 修订，用户拍板「本地构建结果也可正常发 Release」）**：**CI 与本地构建是等价的两条构建通道**——同一基座/双 Feed 锁定、同一把稳定签名密钥（CI 走 Secrets、本地走 `QUARTZ_SIGNING_DIR`）、同一套门禁（同名包检查 / manifest 断言 / `scripts/verify-signing.sh` 签名校验，见 §7.4 与 Builder `docs/SIGNING-OTA.md` §11）；**发布件可来自任一通道**，但**必须**通过上述门禁（`scripts/release-local.sh` 内置硬门禁：签名校验不过即拒绝发布）。一致性边界：包版本为确定性（由 feed 提交派生，两通道逐字相同）、签名同一把（设备互认）；镜像**跨机逐字节一致不承诺**（宿主工具链不同），需要时可设 `SOURCE_DATE_EPOCH` 做同机可复现构建，发布件以随附 `sha256sums` 为准。CI 仍保留为**干净环境权威验收**（跨环境核对 / 基础设施与设备适配重大变更后复验）。
+**触发策略（2026-10-12 起）**：CI 仅手动触发（`workflow_dispatch`），不随 push/PR 自动运行；定时构建取消（基座与双 Feed 已锁定 SHA，计划构建只会重复同一状态）；日常构建验证走本地 `scripts/build-local.sh`。
 
 **CI 核心 Pipeline:**
 1.  **Checkout**: 拉取 `QuartzWrt-Builder` 与 ImmortalWrt 基座（锁定分支 + 精确 commit，见 §4.2）。
@@ -342,7 +343,7 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 
 ### 7.4 本地构建工作流（开发迭代）
 
-CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布**，**本地覆盖快速迭代**，两者步骤保持一致。
+CI 与本地构建分工：**CI 覆盖干净环境可重现性与权威验收**，**本地覆盖快速迭代与发布**（`scripts/release-local.sh`：构建 → 签名硬门禁 → 打包 → `gh release create`）；两者步骤与门禁保持一致（同步义务见下），产物互认（同锁定、同密钥——§7.1）。
 
 *   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
