@@ -100,6 +100,10 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
 任何静态 Web 服务器都能承载——NAS（群晖/威联通/自建 nginx/caddy）是首选；Cloudflare R2
 （S3 兼容）保留为"需要公网/跨地域"时的备选（阶段 2 全量镜像也用它更合适）。
 
+**当前线上入口（2026-10-15）**：`https://sources.quartzwrt.org/quartz-feed`（Cloudflare 隧道 +
+Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；内网直连 `http://10.0.0.110:880/quartz-feed`
+同内容，备用）。站点根 `/` 展示**软件源页面**（见 §12）。
+
 **NAS 托管要点（实测/约定）**：
 
 - **URL 必须是设备可达的地址**：LAN 内用 NAS 的 LAN IP 或内网域名（如
@@ -373,6 +377,50 @@ TDD §7.1/§7.4 已按此修订（2026-10-15 用户拍板：本地构建结果�
 （至少清掉 `bin/packages/<arch>/{quartz,thirdparty}/*.apk` 同族残留，坑位 #49；CI 通道天然是
 干净检出）。增量构建的同名旧包由 `publish-feed.sh` 清理+重签索引兜底，镜像侧版本戳由 feed
 提交派生（同锁定即同名同版本，不产生"旧包胜出"）。
+
+---
+
+## 12. 软件源页面、多架构发布与双 Feed 仓库 Release（2026-10-15）
+
+### 12.1 软件源页面（仿 ImmortalWrt 下载页）
+
+`scripts/gen-feed-page.sh <发布根>` 生成**纯静态、自包含**（无外部资源）的索引页，随发布自动产出：
+
+```
+<发布根>/index.html                             总览：源地址 / 构建标识 / 架构与目标导航 / 接入示例
+<发布根>/packages/<arch>/<feed>/index.html      包清单：名称 / 版本 / 体积 / 下载链接
+<发布根>/targets/<board>/<subtarget>/index.html 镜像清单：文件 / 体积 / sha256 + 目标包
+```
+
+- 页面在 `publish-feed-all.sh`（以及 `release-local.sh` 的 feed 快照）里自动生成，**无需手工维护**；
+- 包清单由 host apk 解析索引得到——**apk 缺失时默认报错**（防止静默发布"0 个包"的页面）；
+- 站点根 `index.html`（宝塔占位页）在 NAS 发布时用同页覆盖（保留 `.bak` 备份）。
+
+### 12.2 多架构发布（x86_64 + ARM）
+
+软件源需同时覆盖 **x86_64** 与 **aarch64_generic**（FNet3399 / rockchip armv8）：
+
+- 构建树内两套产物**共存**（`bin/packages/<arch>/`、`bin/targets/<board>/<subtarget>/` 各自独立），
+  但**需两次构建**（切换目标触发 dirclean；两次构建用**同一 `QUARTZ_BUILD_ID`**，OTA 版本才一致）；
+- `scripts/publish-feed-all.sh --base-dir <树> --dest <根>`：按"架构:目标"对表逐对发布
+  （默认 `x86_64:x86:64 aarch64_generic:rockchip:armv8`，缺产物自动跳过；新增目标补一行）→
+  生成页面 → 可选**一次 rsync**（`--rsync`，含 `--delete`）；
+- 设备侧 `quartz-feed.list` 由构建时的 `$(ARCH_PACKAGES)` 生成（各架构固件只列自己的索引），
+  见 `quartz-defaults` 安装规则。
+
+### 12.3 双 Feed 仓库 Release（自建软件源压缩包）
+
+`scripts/release-feed-repos.sh --tag vX.Y.Z`：给 `QuartzWrt-Packages`（quartz feed）与
+`QuartzWrt-ThirdParty`（thirdparty feed）各发一个 Release，资产为**多架构 feed 压缩包**：
+
+```
+<feed>-feed-<tag>.tar.gz    packages/<arch>/<feed>/{*.apk,packages.adb}（全部架构）
+quartz.pem                  签名公钥（key id 同固件/CI 产物——同一把稳定密钥）
+README.md（包内）/ Release notes（构建标识 / 锁定 / 自建源步骤）
+```
+
+自建源用法：解压 → `packages/` 原样挂静态托管 → 设备加一行索引 URL（索引已签名，设备端 apk 验签）。
+与固件 Release 用**同一 tag**，便于溯源"哪个固件版本配哪份 feed"。
 
 ## 10. 开放事项
 

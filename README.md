@@ -22,7 +22,10 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签）；`--rsync` 直推 NAS 等静态托管 |
 | `scripts/check-feed-live.sh` | WP-9 发布后自检：托管根可达性 / 索引签名 key id / OTA 清单验签 / 抽查包可取（#41 阶段 1 翻转前置） |
 | `scripts/ota-drill.sh` | WP-9 端到端演练：独立 QEMU 实例上跑「包升级链路 + 固件 OTA 链路」（含异钥反例） |
-| `scripts/release-local.sh` | WP-9 发布：本地构建 → 签名校验（硬门禁）→ 打包 → `gh release create`（含 feed 快照与 OTA 清单） |
+| `scripts/release-local.sh` | WP-9 发布：本地构建 → 签名校验（硬门禁）→ 打包 → `gh release create`（含多架构 feed 快照与 OTA 清单） |
+| `scripts/publish-feed-all.sh` | WP-9 多架构发布：按"架构:目标"对表发布全部 feed/目标包/镜像 + 生成软件源页面 + 一次 rsync |
+| `scripts/gen-feed-page.sh` | WP-9 软件源页面（仿 ImmortalWrt 下载页）：总览 / 包清单 / 镜像清单，纯静态自包含 |
+| `scripts/release-feed-repos.sh` | WP-9 双 Feed 仓库 Release：quartz/thirdparty 各发多架构 feed 压缩包（供自建软件源）+ 公钥 |
 | `scripts/ssh-pass.py` | pty 驱动 ssh/rsync 密码认证（NAS 等无 key 远端发布用；密码仅走环境变量） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 切换设备目标；`publish` 发布 feed/OTA） |
 | `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/双 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
@@ -65,8 +68,8 @@ scripts/gen-signing-key.sh
 # ③ 本地构建：注入密钥（QUARTZ_SIGNING_DIR）+ 构建标识 + 构建后签名校验（步骤 5c/10c 自动）
 QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
 
-# ④ 发布 feed + OTA 清单到目录（再整体同步到托管：NAS/R2/静态主机）
-scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out
+# ④ 发布 feed + OTA 清单到目录（多架构 + 自动生成软件源页面；再整体同步到托管：NAS/R2/静态主机）
+scripts/publish-feed-all.sh --base-dir ../build/immortalwrt --dest ../feed-out
 #    直接推到 NAS（静态托管，-av --delete；目标须为专用目录）：
 #    scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out \
 #      --rsync user@nas:/volume1/web/quartzwrt
