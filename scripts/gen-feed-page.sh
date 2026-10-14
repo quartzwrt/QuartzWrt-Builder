@@ -9,19 +9,23 @@
 # 用法:
 #   scripts/gen-feed-page.sh <发布根目录> [--url https://sources.quartzwrt.org/quartz-feed]
 #                            [--build-id ID] [--apk PATH] [--title 名称]
+#                            [--root-out FILE] [--feed-path NAME]   # 另出一份"站点根"精简页
+#                                                                    （链接指向 /<feed-path>/…）
 # 说明：包清单解析需要 host apk（构建树 staging_dir/host/bin/apk，或 --apk 指定）；
 #       缺失时降级为"仅链接、不列包"（页面仍可用）。
 
 set -euo pipefail
 
 DEST="${1:?用法：gen-feed-page.sh <发布根目录> [--url ...]}"; shift || true
-URL=""; BUILD_ID=""; APK=""; TITLE="QuartzWrt 软件源"
+URL=""; BUILD_ID=""; APK=""; TITLE="QuartzWrt 软件源"; ROOT_OUT=""; FEED_PATH="quartz-feed"
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) URL="$2"; shift 2 ;;
     --build-id) BUILD_ID="$2"; shift 2 ;;
     --apk) APK="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;
+    --root-out) ROOT_OUT="$2"; shift 2 ;;
+    --feed-path) FEED_PATH="$2"; shift 2 ;;
     --allow-no-apk) shift ;;  # 已在上方预处理
     *) echo "未知参数：$1" >&2; exit 1 ;;
   esac
@@ -78,6 +82,7 @@ done
 
 # ---------- 渲染 ----------
 DEST="$DEST" URL="$URL" BUILD_ID="$BUILD_ID" GEN_TS="$GEN_TS" TITLE="$TITLE" WORK="$WORK" \
+ROOT_OUT="$ROOT_OUT" FEED_PATH="$FEED_PATH" \
 python3 - <<'PYEOF'
 import html, os, pathlib
 
@@ -238,6 +243,30 @@ for b_, s_ in targets:
 <table><tr><th>包名</th><th>版本</th><th class="num">体积</th><th></th></tr>{tprs or '<tr><td colspan="4">（无）</td></tr>'}</table>
 <p style="color:#98989d;font-size:13px">索引：<a href="packages/packages.adb">packages/packages.adb</a></p>"""
     (td / "index.html").write_text(page(body2, page_title=f"{title} · {b_}/{s_}"), encoding="utf-8")
+
+# ---- 站点根精简页（可选）：链接前缀指向 /<feed-path>/ ----
+root_out = os.environ.get("ROOT_OUT", "")
+if root_out:
+    fp = os.environ.get("FEED_PATH", "quartz-feed").strip("/")
+    links = [
+        (f"/{fp}/", "软件源目录（总览 / 包清单 / 镜像清单）"),
+        (f"/{fp}/packages/{archs[0]}/quartz/index.html" if archs else f"/{fp}/", "包清单示例"),
+        (f"/{fp}/ota/{targets[0][0]}/{targets[0][1]}.json" if targets else f"/{fp}/", "OTA 版本清单（JSON）"),
+        (f"/{fp}/PUBLISH.txt", "发布记录（构建标识 / 签名指纹）"),
+    ]
+    rows = "".join(f'<li><a href="{u}">{esc(t)}</a></li>' for u, t in links)
+    rbody = f'''<p class="sub">QuartzWrt 固件与软件包的公开镜像（apk 源）。</p>
+<div class="card"><div class="kv">
+<div>源地址</div><div><code>{esc(url or '-')}</code></div>
+<div>构建标识</div><div><code>{esc(build_id)}</code></div>
+<div>架构</div><div>{esc('、'.join(archs) or '-')}</div>
+<div>目标</div><div>{esc('、'.join(f'{b}/{s}' for b, s in targets) or '-')}</div>
+</div></div>
+<h2>入口</h2><ul>{rows}</ul>
+<p style="color:#98989d;font-size:13px">固件出厂已预置本源与签名公钥（<code>/etc/apk/keys/quartz.pem</code>），
+设备端 apk 自动验签；OTA 清单以 usign 签名 + 镜像 sha256 校验。</p>'''
+    pathlib.Path(root_out).write_text(page(rbody, page_title=title), encoding="utf-8")
+    print(f"站点根精简页：{root_out}")
 
 print(f"页面已生成：index.html + {len(archs)} 架构 feed 清单 + {len(targets)} 目标清单")
 PYEOF
