@@ -14,6 +14,7 @@
 #     --rsync DEST     全部发布后一次性同步（SSH_PASS=... 可驱动密码认证）
 #     --url URL        软件源页面里展示的公开地址（默认取 seed 内 QUARTZ_FEED_BASE_URL）
 #     --no-page        不生成软件源页面
+#     --no-devices-page 不生成"支持设备页"（devices/：基座全量目标/设备清单，menuconfig 式层级）
 #     --root-page      同步后把"站点根精简页"写到托管站点根 index.html（先备份为 index.html~；
 #                      站点根 = rsync 目标去掉最后一段，如 .../quartzwrt/quartz-feed → .../quartzwrt）
 #     --feeds LIST     传给 publish-feed.sh（默认 quartz,thirdparty）
@@ -29,6 +30,7 @@ PAIRS="x86_64:x86:64 aarch64_generic:rockchip:armv8"
 RSYNC_DEST=""
 URL=""
 MAKE_PAGE=1
+MAKE_DEVICES=1
 FEEDS="quartz,thirdparty"
 ROOT_PAGE=0
 
@@ -40,6 +42,7 @@ while [ $# -gt 0 ]; do
     --rsync) RSYNC_DEST="$2"; shift 2 ;;
     --url) URL="$2"; shift 2 ;;
     --no-page) MAKE_PAGE=0; shift ;;
+    --no-devices-page) MAKE_DEVICES=0; shift ;;
     --root-page) ROOT_PAGE=1; shift ;;
     --feeds) FEEDS="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -69,6 +72,13 @@ for pair in $PAIRS; do
   n=$((n+1)); published+=("$arch:$board:$sub")
 done
 [ "$n" -gt 0 ] || { echo "错误：无任何可用架构对（--pairs：$PAIRS）" >&2; exit 1; }
+
+# 支持设备页（先于主页面生成，主页面会链接它）
+if [ "$MAKE_DEVICES" = 1 ]; then
+  step "生成支持设备页（基座全量目标/设备）"
+  bash "$BUILDER_DIR/scripts/gen-devices-page.sh" --base-dir "$BASE_DIR" --out "$DEST/devices" --url "$URL" \
+    || echo "WARN: 设备页生成跳过（基座树缺目标元数据？先 make prepare-tmpinfo）"
+fi
 
 # 软件源页面
 if [ "$MAKE_PAGE" = 1 ]; then

@@ -3,29 +3,124 @@ name: Build QuartzWrt Firmware
 # 触发策略（2026-10-12 起）：仅手动触发（workflow_dispatch），不随 push / PR 自动运行。
 # 日常构建验证走本地 scripts/build-local.sh（docs/TDD.md §7.4）；本工作流用于
 # 发布前 / 基础设施重大变更后的干净环境权威验收。
-# 定时构建已取消：基座与双 Feed 均已锁定 SHA，计划构建只会重复同一状态；
-# 上游版本跟踪将另设轻量任务（待建）。
 #
-# 设备构建（2026-10-14 起，2026-10-15 改下拉）：device 输入**下拉选择**——x86_64 = 默认目标；
-# 其余项 = 设备构建（应用 devices/<名> 适配层 + 设备 seed）。新增设备时同步 options 列表。
-#
-# 签名与发布（WP-9，2026-10-14 起，docs/SIGNING-OTA.md）：
-#   构建前注入稳定签名密钥（Secrets：APK_SIGNING_PRIVATE_KEY/PUBLIC_KEY、OTA_SIGNING_KEY）
-#   → feed 索引以稳定密钥签名、固件预置对应公钥；构建后 verify-signing.sh 强校验。
-#   publish=yes 时把 feed/OTA 整理（scripts/publish-feed.sh）并同步到托管
-#   （S3 兼容：R2 等，凭据 Secrets PUBLISH_S3_*；未配置则仅留 artifact）。
+# 目标选择（2026-10-15 起，menuconfig 式层级）：
+#   target  = 基座全部目标/子目标（94 项，等价 menuconfig 的 Target System + Subtarget；
+#             架构由基座元数据解析并打进运行日志/job summary）
+#   profile = 设备（Target Profile），三种填法：
+#     ① 留空              → 构建该目标**全部设备**（multi-profile，与官方发布同款出图）
+#     ② <设备 profile 名> → 只构建该设备（名字见 job summary 的设备清单或软件源站"设备页"）
+#     ③ <设备适配层名>    → 走 devices/<名>（基座补丁 + 投放文件 + 专用种子；当前 erya_fnet-3399）
+#   注意：GitHub 下拉是静态列表，基座 2259 个设备无法逐一列出——设备名请查
+#   https://sources.quartzwrt.org/devices/ 或本次运行的 job summary。
 on:
   workflow_dispatch:
     inputs:
-      device:
-        description: '构建目标（x86_64 = 默认目标；其余 = devices/<名> 设备适配层）'
+      target:
+        description: '目标/子目标（基座全量 94 项；架构见运行日志）'
         required: true
-        default: x86_64
+        default: 'x86/64'
         type: choice
-        # 新增设备时**同步此列表**（每项对应 devices/<名>/；下拉避免手填错名）
         options:
-          - x86_64
-          - erya_fnet-3399
+          - 'apm821xx/nand'
+          - 'apm821xx/sata'
+          - 'armsr/armv7'
+          - 'armsr/armv8'
+          - 'at91/sam9x'
+          - 'at91/sama5'
+          - 'at91/sama7'
+          - 'ath79/generic'
+          - 'ath79/mikrotik'
+          - 'ath79/nand'
+          - 'ath79/tiny'
+          - 'bcm27xx/bcm2708'
+          - 'bcm27xx/bcm2709'
+          - 'bcm27xx/bcm2710'
+          - 'bcm27xx/bcm2711'
+          - 'bcm27xx/bcm2712'
+          - 'bcm47xx/generic'
+          - 'bcm47xx/legacy'
+          - 'bcm47xx/mips74k'
+          - 'bcm4908/generic'
+          - 'bcm53xx/generic'
+          - 'bmips/bcm6318'
+          - 'bmips/bcm63268'
+          - 'bmips/bcm6328'
+          - 'bmips/bcm6358'
+          - 'bmips/bcm6362'
+          - 'bmips/bcm6368'
+          - 'd1/generic'
+          - 'gemini/generic'
+          - 'imx/cortexa53'
+          - 'imx/cortexa7'
+          - 'imx/cortexa9'
+          - 'ipq40xx/chromium'
+          - 'ipq40xx/generic'
+          - 'ipq40xx/mikrotik'
+          - 'ipq806x/chromium'
+          - 'ipq806x/generic'
+          - 'ixp4xx/generic'
+          - 'kirkwood/generic'
+          - 'lantiq/xrx200'
+          - 'lantiq/xrx200_legacy'
+          - 'lantiq/xway'
+          - 'layerscape/armv7'
+          - 'layerscape/armv8_64b'
+          - 'loongarch64/generic'
+          - 'malta/be'
+          - 'malta/be64'
+          - 'malta/le'
+          - 'malta/le64'
+          - 'mediatek/filogic'
+          - 'mediatek/mt7622'
+          - 'mediatek/mt7623'
+          - 'mediatek/mt7629'
+          - 'microchipsw/lan969x'
+          - 'mpc85xx/p1010'
+          - 'mpc85xx/p1020'
+          - 'mpc85xx/p2020'
+          - 'mvebu/cortexa53'
+          - 'mvebu/cortexa72'
+          - 'mvebu/cortexa9'
+          - 'mxs/generic'
+          - 'octeon/generic'
+          - 'omap/generic'
+          - 'pistachio/generic'
+          - 'qoriq/generic'
+          - 'qualcommax/ipq50xx'
+          - 'qualcommax/ipq60xx'
+          - 'qualcommax/ipq807x'
+          - 'ramips/mt7620'
+          - 'ramips/mt7621'
+          - 'ramips/mt76x8'
+          - 'ramips/rt305x'
+          - 'ramips/rt3883'
+          - 'realtek/rtl838x'
+          - 'realtek/rtl839x'
+          - 'realtek/rtl930x'
+          - 'realtek/rtl930x_nand'
+          - 'realtek/rtl931x'
+          - 'realtek/rtl931x_nand'
+          - 'rockchip/armv8'
+          - 'sifiveu/generic'
+          - 'siflower/sf21'
+          - 'starfive/generic'
+          - 'stm32/stm32mp1'
+          - 'sunxi/arm926ejs'
+          - 'sunxi/cortexa53'
+          - 'sunxi/cortexa7'
+          - 'sunxi/cortexa8'
+          - 'tegra/generic'
+          - 'x86/64'
+          - 'x86/generic'
+          - 'x86/geode'
+          - 'x86/legacy'
+          - 'zynq/generic'
+      profile:
+        description: '设备 profile（留空 = 该目标全部设备；也可填适配层名，如 erya_fnet-3399）'
+        required: false
+        default: ''
+        type: string
       publish:
         description: '发布 feed/OTA 到托管（WP-9；需签名 Secrets + 托管凭据）'
         required: false
@@ -68,14 +163,6 @@ jobs:
       - name: Checkout Builder repo
         uses: actions/checkout@v4
 
-      - name: Validate device (设备参数校验)
-        if: ${{ inputs.device != 'x86_64' }}
-        run: |
-          test -d "devices/${{ inputs.device }}" || {
-            echo "FAIL: devices/${{ inputs.device }} 不存在"; exit 1; }
-          test -f "devices/${{ inputs.device }}/device.env" && test -f "devices/${{ inputs.device }}/seed.config"
-          echo "OK: 设备 ${{ inputs.device }}"
-
       - name: Load base version (ImmortalWrt 基座锁定, docs/TDD.md §4.2)
         id: base
         run: |
@@ -100,7 +187,7 @@ jobs:
           cp feeds.conf.default feeds.conf
           cat ../config/feeds.conf.extra >> feeds.conf
           echo "--- feeds.conf ---"
-          cat feeds.conf
+          tail -4 feeds.conf
 
       - name: Update and install feeds
         working-directory: immortalwrt
@@ -112,17 +199,63 @@ jobs:
         working-directory: immortalwrt
         run: bash ../scripts/check-duplicate-packages.sh feeds
 
-      - name: Apply device adaptation (设备适配层, docs/TDD.md §4.6)
-        if: ${{ inputs.device != 'x86_64' }}
-        run: bash scripts/apply-device.sh "${{ github.workspace }}/immortalwrt" "${{ inputs.device }}"
+      - name: Resolve target & profile (目标解析 + 设备校验)
+        id: tgt
+        working-directory: immortalwrt
+        run: |
+          set -euo pipefail
+          TARGET="${{ inputs.target }}"
+          PROFILE="${{ inputs.profile }}"
+          board="${TARGET%%/*}"; sub="${TARGET#*/}"
+          ARCH="$(perl scripts/dump-target-info.pl targets | awk -v t="$TARGET" '$1==t{print $2}')"
+          [ -n "$ARCH" ] || { echo "FAIL: 基座无此目标：$TARGET"; exit 1; }
+          # 模式：default（x86/64 默认种子）/ device（我们的设备适配层）/ multi（该目标全部设备）/ profile（单个设备）
+          if [ -n "$PROFILE" ] && [ -d "../devices/$PROFILE" ]; then
+            kind=device; dev="$PROFILE"
+          elif [ -z "$PROFILE" ] && [ "$TARGET" = "x86/64" ]; then
+            kind=default; dev=""
+          elif [ -z "$PROFILE" ]; then
+            kind=multi; dev=""
+          else
+            kind=profile; dev=""
+            if ! perl scripts/dump-target-info.pl devices "$TARGET" | awk '{print $1}' | grep -qx "$PROFILE"; then
+              echo "FAIL: 目标 $TARGET 下不存在设备 profile：$PROFILE"
+              echo "该目标设备（前 60，完整清单见 job summary / 软件源站设备页）："
+              perl scripts/dump-target-info.pl devices "$TARGET" | head -60
+              exit 1
+            fi
+          fi
+          # 设备清单进 job summary（便于挑 profile）
+          {
+            echo "### 目标 \`$TARGET\`（架构 \`$ARCH\`）"
+            echo ""
+            echo "设备数：$(perl scripts/dump-target-info.pl devices "$TARGET" | wc -l)　·　构建模式：\`$kind\`"
+            echo ""
+            echo "| profile | 描述 |"
+            echo "| :--- | :--- |"
+            perl scripts/dump-target-info.pl devices "$TARGET" | head -120 | sed 's/^\\([^ ]*\\) \\(.*\\)$/| \\1 | \\2 |/'
+          } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "kind=$kind"
+            echo "board=$board"
+            echo "subtarget=$sub"
+            echo "arch=$ARCH"
+            echo "device=$dev"
+            echo "bin=bin/targets/$TARGET"
+          } >> "$GITHUB_OUTPUT"
+          echo "目标 $TARGET（架构 $ARCH）；模式 $kind${dev:+（适配层 $dev）}"
+
+      - name: Apply device adaptation (设备适配层)
+        if: steps.tgt.outputs.device != ''
+        run: bash scripts/apply-device.sh "${{ github.workspace }}/immortalwrt" "${{ steps.tgt.outputs.device }}"
 
       - name: Prepare ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ccache-${{ steps.base.outputs.commit }}-${{ hashFiles('config/seed.config', 'devices/**') }}
+          key: ccache-${{ steps.base.outputs.commit }}-${{ steps.tgt.outputs.arch }}-${{ hashFiles('config/seed.config', 'config/seed-generic.config', 'devices/**') }}
           restore-keys: |
-            ccache-${{ steps.base.outputs.commit }}-
+            ccache-${{ steps.base.outputs.commit }}-${{ steps.tgt.outputs.arch }}-
 
       - name: Link ccache dir
         run: |
@@ -145,53 +278,78 @@ jobs:
           printf '%s\n' "$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)" > files/etc/quartz-build-id
           cat files/etc/quartz-build-id
 
-      - name: Load build config
+      - name: Load build config (种子 + 目标选择)
         working-directory: immortalwrt
         run: |
-          if [ "${{ inputs.device }}" != "x86_64" ]; then
-            cp "../devices/${{ inputs.device }}/seed.config" .config
-          else
+          set -euo pipefail
+          KIND="${{ steps.tgt.outputs.kind }}"
+          DEV="${{ steps.tgt.outputs.device }}"
+          board="${{ steps.tgt.outputs.board }}"; sub="${{ steps.tgt.outputs.subtarget }}"
+          if [ "$KIND" = device ]; then
+            cp "../devices/$DEV/seed.config" .config
+          elif [ "$KIND" = default ]; then
             cp ../config/seed.config .config
+          else
+            # 通用目标（multi/profile）：通用种子 + 按输入注入目标/设备选择
+            cp ../config/seed-generic.config .config
+            {
+              echo "CONFIG_TARGET_${board}=y"
+              echo "CONFIG_TARGET_${board}_${sub}=y"
+              if [ "$KIND" = profile ]; then
+                echo "CONFIG_TARGET_${board}_${sub}_DEVICE_${{ inputs.profile }}=y"
+              else
+                echo "CONFIG_TARGET_ALL_PROFILES=y"
+                echo "CONFIG_TARGET_MULTI_PROFILE=y"
+              fi
+            } >> .config
           fi
           make defconfig
+          echo "--- 目标相关配置 ---"
+          grep -E "^CONFIG_TARGET_${board}(_${sub})?(_DEVICE_[A-Za-z0-9_-]+)?=" .config | head -8
 
       - name: Build firmware
         working-directory: immortalwrt
-        run: make -j$(nproc) V=s
-        # 首次跑通后可将 V=s 降级为 V=w 以加快构建、减小日志
+        run: make -j$(nproc) V=w
 
-      - name: Verify packages in manifest (公共断言 + 设备断言)
+      - name: Verify packages in manifest
         working-directory: immortalwrt
         run: |
-          if [ "${{ inputs.device }}" != "x86_64" ]; then
-            . "../devices/${{ inputs.device }}/device.env"
-            BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
-          else
-            BIN="bin/targets/x86/64"
-          fi
+          set -euo pipefail
+          BIN="${{ steps.tgt.outputs.bin }}"
+          KIND="${{ steps.tgt.outputs.kind }}"
           manifest=$(find "$BIN" -name '*.manifest' | head -1)
           [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest"; exit 1; }
-          if [ "${{ inputs.device }}" != "x86_64" ]; then
-            bash ../scripts/check-manifest.sh "$manifest" "${{ inputs.device }}"
-          else
+          if [ "$KIND" = device ]; then
+            bash ../scripts/check-manifest.sh "$manifest" "${{ steps.tgt.outputs.device }}"
+          elif [ "$KIND" = default ]; then
             bash ../scripts/check-manifest.sh "$manifest"
+          else
+            # 通用目标：无 quartz-defaults 预装断言（通用种子只带 quartz 核心）
+            echo "OK(通用目标): $(wc -l < "$manifest") 个包；关键包检查："
+            for p in luci-theme-quartz luci-app-dashboard quartz-daemon quartz-app-api; do
+              grep -q "^${p} " "$manifest" && echo "  PASS: ${p}" || { echo "  FAIL: ${p} 不在 manifest"; exit 1; }
+            done
           fi
 
-      - name: Verify device image (设备构建)
-        if: ${{ inputs.device != 'x86_64' }}
+      - name: Verify image (成品镜像存在性)
         working-directory: immortalwrt
         run: |
-          . "../devices/${{ inputs.device }}/device.env"
-          BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
-          img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
-          if [ -n "$img" ]; then echo "OK: $img"; else echo "FAIL: 未找到 $DEVICE_IMAGE_GLOB"; exit 1; fi
+          set -euo pipefail
+          BIN="${{ steps.tgt.outputs.bin }}"
+          KIND="${{ steps.tgt.outputs.kind }}"
+          if [ "$KIND" = device ]; then
+            . "../devices/${{ steps.tgt.outputs.device }}/device.env"
+            img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
+          else
+            img=$(find "$BIN" -maxdepth 1 -name '*.img.gz' | head -1)
+          fi
+          [ -n "$img" ] && echo "OK: $img" || { echo "FAIL: $BIN 下未找到成品镜像"; exit 1; }
 
       - name: Verify signing (WP-9 签名一致性)
         working-directory: immortalwrt
         run: |
-          ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' .config | head -1)"
           if [ -n "${APK_SIGNING_PRIVATE_KEY:-}" ]; then
-            bash ../scripts/verify-signing.sh "$PWD" --arch "${ARCH_PKGS:-x86_64}"
+            bash ../scripts/verify-signing.sh "$PWD" --arch "${{ steps.tgt.outputs.arch }}" --targets "${{ inputs.target }}"
           else
             echo "SKIP: 未配置签名密钥（开发构建）"
           fi
@@ -200,16 +358,9 @@ jobs:
         if: ${{ inputs.publish == 'yes' }}
         working-directory: immortalwrt
         run: |
-          ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' .config | head -1)"
-          if [ "${{ inputs.device }}" != "x86_64" ]; then
-            . "../devices/${{ inputs.device }}/device.env"
-            BOARD="$DEVICE_TARGET"; SUB="$DEVICE_SUBTARGET"
-          else
-            BOARD="x86"; SUB="64"
-          fi
           bash ../scripts/publish-feed.sh --base-dir "$PWD" --dest ../feed-out \
-            --arch "${ARCH_PKGS:-x86_64}" --board "$BOARD" --subtarget "$SUB"
-          find ../feed-out -maxdepth 3 -type d | sort | head -20
+            --arch "${{ steps.tgt.outputs.arch }}" --board "${{ steps.tgt.outputs.board }}" \
+            --subtarget "${{ steps.tgt.outputs.subtarget }}"
           du -sh ../feed-out
 
       - name: Sync feed to host (S3 兼容托管，如 Cloudflare R2)
@@ -217,39 +368,36 @@ jobs:
         run: |
           aws s3 sync feed-out "s3://${PUBLISH_S3_BUCKET}/" --endpoint-url "${PUBLISH_S3_ENDPOINT}" \
             --delete --no-progress
-          echo "OK: feed 已同步到 ${PUBLISH_S3_BUCKET}（${PUBLISH_S3_ENDPOINT}）"
+          echo "OK: feed 已同步到 ${PUBLISH_S3_BUCKET}"
 
       - name: Note missing host credentials (发布未同步)
         if: ${{ inputs.publish == 'yes' && env.PUBLISH_S3_BUCKET == '' }}
         run: |
-          echo "WARN: publish=yes 但未配置 PUBLISH_S3_BUCKET/PUBLISH_S3_ENDPOINT/PUBLISH_S3_ACCESS_KEY_ID/PUBLISH_S3_SECRET_ACCESS_KEY"
-          echo "      feed 树已随 artifact 上传（quartzwrt-feed-*），可手工同步到托管。"
+          echo "WARN: publish=yes 但未配置 PUBLISH_S3_*（feed 树随 artifact 上传，可手工同步到托管）"
 
       - name: Upload publish tree (发布产物留档)
         if: ${{ inputs.publish == 'yes' }}
         uses: actions/upload-artifact@v4
         with:
-          name: quartzwrt-feed-${{ inputs.device != 'x86_64' && inputs.device || 'x86_64' }}
+          name: quartzwrt-feed-${{ steps.tgt.outputs.arch }}
           path: feed-out/
           retention-days: 14
 
       - name: Collect artifacts
         working-directory: immortalwrt
         run: |
-          if [ "${{ inputs.device }}" != "x86_64" ]; then
-            . "../devices/${{ inputs.device }}/device.env"
-            BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
-          else
-            BIN="bin/targets/x86/64"
-          fi
+          set -euo pipefail
+          BIN="${{ steps.tgt.outputs.bin }}"
           mkdir -p ../artifacts
-          find "$BIN" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) -exec cp {} ../artifacts/ \;
+          find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \
+            -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} ../artifacts/ \;
           cp .config ../artifacts/dotconfig
+          ls ../artifacts | head -20
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}${{ inputs.device != 'x86_64' && format('-{0}', inputs.device) || '' }}
+          name: quartzwrt-firmware-${{ steps.tgt.outputs.arch }}-${{ inputs.profile != '' && inputs.profile || 'all-profiles' }}
           path: artifacts/
           retention-days: 14
 

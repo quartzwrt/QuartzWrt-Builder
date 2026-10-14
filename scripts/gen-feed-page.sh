@@ -196,6 +196,9 @@ body = f"""<p class="sub">QuartzWrt 固件与软件包的公开镜像（apk 源�
 {''.join(rows_tgt) or '<tr><td colspan="4">（无）</td></tr>'}
 </table>
 
+<h2>支持设备</h2>
+<p>基座支持的**全部目标与设备**（94 个目标 / 2259 个设备，menuconfig 式层级）：<a href="devices/index.html">设备清单（挑 CI 的 target/profile）</a></p>
+
 <h2>设备侧接入</h2>
 <p>固件出厂已预置本源与签名公钥（<code>/etc/apk/keys/quartz.pem</code>）；手工接入：</p>
 <pre># /etc/apk/repositories.d/quartz-feed.list
