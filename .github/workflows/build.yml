@@ -6,8 +6,8 @@ name: Build QuartzWrt Firmware
 # 定时构建已取消：基座与双 Feed 均已锁定 SHA，计划构建只会重复同一状态；
 # 上游版本跟踪将另设轻量任务（待建）。
 #
-# 设备构建（2026-10-14 起）：workflow_dispatch 的 device 输入为空 = x86_64 默认目标；
-# 填 devices/<名>（如 erya_fnet-3399）= 设备构建（应用 devices/ 适配层 + 设备 seed）。
+# 设备构建（2026-10-14 起，2026-10-15 改下拉）：device 输入**下拉选择**——x86_64 = 默认目标；
+# 其余项 = 设备构建（应用 devices/<名> 适配层 + 设备 seed）。新增设备时同步 options 列表。
 #
 # 签名与发布（WP-9，2026-10-14 起，docs/SIGNING-OTA.md）：
 #   构建前注入稳定签名密钥（Secrets：APK_SIGNING_PRIVATE_KEY/PUBLIC_KEY、OTA_SIGNING_KEY）
@@ -18,10 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: '设备适配（devices/<名>，如 erya_fnet-3399；留空 = x86_64 默认）'
-        required: false
-        default: ''
-        type: string
+        description: '构建目标（x86_64 = 默认目标；其余 = devices/<名> 设备适配层）'
+        required: true
+        default: x86_64
+        type: choice
+        # 新增设备时**同步此列表**（每项对应 devices/<名>/；下拉避免手填错名）
+        options:
+          - x86_64
+          - erya_fnet-3399
       publish:
         description: '发布 feed/OTA 到托管（WP-9；需签名 Secrets + 托管凭据）'
         required: false
@@ -65,7 +69,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate device (设备参数校验)
-        if: ${{ inputs.device != '' }}
+        if: ${{ inputs.device != 'x86_64' }}
         run: |
           test -d "devices/${{ inputs.device }}" || {
             echo "FAIL: devices/${{ inputs.device }} 不存在"; exit 1; }
@@ -109,7 +113,7 @@ jobs:
         run: bash ../scripts/check-duplicate-packages.sh feeds
 
       - name: Apply device adaptation (设备适配层, docs/TDD.md §4.6)
-        if: ${{ inputs.device != '' }}
+        if: ${{ inputs.device != 'x86_64' }}
         run: bash scripts/apply-device.sh "${{ github.workspace }}/immortalwrt" "${{ inputs.device }}"
 
       - name: Prepare ccache
@@ -144,7 +148,7 @@ jobs:
       - name: Load build config
         working-directory: immortalwrt
         run: |
-          if [ -n "${{ inputs.device }}" ]; then
+          if [ "${{ inputs.device }}" != "x86_64" ]; then
             cp "../devices/${{ inputs.device }}/seed.config" .config
           else
             cp ../config/seed.config .config
@@ -159,7 +163,7 @@ jobs:
       - name: Verify packages in manifest (公共断言 + 设备断言)
         working-directory: immortalwrt
         run: |
-          if [ -n "${{ inputs.device }}" ]; then
+          if [ "${{ inputs.device }}" != "x86_64" ]; then
             . "../devices/${{ inputs.device }}/device.env"
             BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
           else
@@ -167,10 +171,14 @@ jobs:
           fi
           manifest=$(find "$BIN" -name '*.manifest' | head -1)
           [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest"; exit 1; }
-          bash ../scripts/check-manifest.sh "$manifest" "${{ inputs.device }}"
+          if [ "${{ inputs.device }}" != "x86_64" ]; then
+            bash ../scripts/check-manifest.sh "$manifest" "${{ inputs.device }}"
+          else
+            bash ../scripts/check-manifest.sh "$manifest"
+          fi
 
       - name: Verify device image (设备构建)
-        if: ${{ inputs.device != '' }}
+        if: ${{ inputs.device != 'x86_64' }}
         working-directory: immortalwrt
         run: |
           . "../devices/${{ inputs.device }}/device.env"
@@ -193,7 +201,7 @@ jobs:
         working-directory: immortalwrt
         run: |
           ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' .config | head -1)"
-          if [ -n "${{ inputs.device }}" ]; then
+          if [ "${{ inputs.device }}" != "x86_64" ]; then
             . "../devices/${{ inputs.device }}/device.env"
             BOARD="$DEVICE_TARGET"; SUB="$DEVICE_SUBTARGET"
           else
@@ -221,14 +229,14 @@ jobs:
         if: ${{ inputs.publish == 'yes' }}
         uses: actions/upload-artifact@v4
         with:
-          name: quartzwrt-feed-${{ inputs.device != '' && inputs.device || 'x86_64' }}
+          name: quartzwrt-feed-${{ inputs.device != 'x86_64' && inputs.device || 'x86_64' }}
           path: feed-out/
           retention-days: 14
 
       - name: Collect artifacts
         working-directory: immortalwrt
         run: |
-          if [ -n "${{ inputs.device }}" ]; then
+          if [ "${{ inputs.device }}" != "x86_64" ]; then
             . "../devices/${{ inputs.device }}/device.env"
             BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
           else
@@ -241,7 +249,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}${{ inputs.device != '' && format('-{0}', inputs.device) || '' }}
+          name: quartzwrt-firmware-${{ steps.base.outputs.branch }}${{ inputs.device != 'x86_64' && format('-{0}', inputs.device) || '' }}
           path: artifacts/
           retention-days: 14
 

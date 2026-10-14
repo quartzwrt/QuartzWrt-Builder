@@ -6,7 +6,7 @@
 # docs/SIGNING-OTA.md §11）；本脚本负责"本地构建 → 校验 → 打包 → 发 Release"这条发布路径。
 #
 # 流程：可选构建（--build，构建标识绑定发布 tag）→ 签名校验（**硬门禁**，不过不发）
-#       → 收集产物（镜像/manifest/sha256sums/profiles.json/OTA 清单）→ 可选发布 feed
+#       → 收集产物（镜像/manifest/sha256sums/profiles.json/OTA 清单，多架构）→ 可选发布 feed
 #       （--publish-feed [--rsync DEST]）→ `gh release create`（已存在则 upload --clobber）
 #
 # 用法:
@@ -92,12 +92,16 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 find "$TARGET_BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' \
   -o -name '*.buildinfo' -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} "$OUT/" \;
 if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
-  bash "$BUILDER_DIR/scripts/publish-feed.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed" \
-    --arch "${ARCH_PKGS:-x86_64}" --board "$BOARD" --subtarget "$SUB"
-  cp -f "$OUT/feed/ota/$BOARD/$SUB.json" "$OUT/ota-$BOARD-$SUB.json" 2>/dev/null || true
-  cp -f "$OUT/feed/ota/$BOARD/$SUB.json.sig" "$OUT/ota-$BOARD-$SUB.json.sig" 2>/dev/null || true
+  # 多架构发布（x86_64 + ARM；构建树内两套产物共存，缺哪套自动跳过）+ 软件源页面
+  bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed"
+  for j in "$OUT/feed"/ota/*/*.json; do
+    [ -f "$j" ] || continue
+    b="$(basename "$(dirname "$j")")"; sname="$(basename "$j" .json)"
+    cp -f "$j" "$OUT/ota-$b-$sname.json"
+    cp -f "$j.sig" "$OUT/ota-$b-$sname.json.sig" 2>/dev/null || true
+  done
   if [ "$FEED_TARBALL" = 1 ]; then
-    step "打包 feed 快照（不含镜像）"
+    step "打包 feed 快照（不含镜像；含软件源页面）"
     ( cd "$OUT/feed" && tar --exclude='*.img.gz' --exclude='*.bin' -czf "$OUT/quartz-feed-$TAG.tar.gz" . )
     echo "  $(ls -lh "$OUT/quartz-feed-$TAG.tar.gz" | awk '{print $5}')"
   fi
@@ -105,10 +109,8 @@ fi
 
 # 4. 可选：发布 feed 到静态托管（NAS）
 if [ "$DO_PUBLISH_FEED" = 1 ] && [ -n "$RSYNC_DEST" ]; then
-  step "发布 feed 到托管：$RSYNC_DEST"
-  RSYNC_ARGS=(--rsync "$RSYNC_DEST")
-  bash "$BUILDER_DIR/scripts/publish-feed.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed" \
-    --arch "${ARCH_PKGS:-x86_64}" --board "$BOARD" --subtarget "$SUB" "${RSYNC_ARGS[@]}"
+  step "发布 feed 到托管：$RSYNC_DEST（多架构 + 页面，一次同步）"
+  bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed" --rsync "$RSYNC_DEST"
 fi
 
 # 5. 发布说明
