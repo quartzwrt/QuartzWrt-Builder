@@ -138,6 +138,20 @@ if [ -n "$DEVICE" ]; then
   bash "$BUILDER_DIR/scripts/apply-device.sh" "$BASE_DIR" "$DEVICE"
 fi
 
+# 5c. 签名密钥注入（WP-9）：稳定密钥 → 构建树 TOPDIR（feed 索引签名 + 固件信任根）。
+#     未提供密钥时为开发构建（基座自生成临时密钥，feed 不可发布）——发布构建
+#     必须提供 QUARTZ_SIGNING_DIR（本地）或 APK_SIGNING_PRIVATE_KEY（CI Secrets）。
+step "注入签名密钥（WP-9，docs/SIGNING-OTA.md）"
+bash "$BUILDER_DIR/scripts/inject-signing-key.sh" "$BASE_DIR"
+
+# 5d. 构建标识：随镜像投放 /etc/quartz-build-id（TOPDIR/files 原样覆盖进 rootfs），
+#     publish-feed.sh 的 OTA 清单与设备端 quartz-ota-update 以它判定版本新旧。
+step "写入构建标识（/etc/quartz-build-id）"
+BUILD_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$BUILDER_DIR" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+mkdir -p "$BASE_DIR/files/etc"
+printf '%s\n' "$BUILD_ID" > "$BASE_DIR/files/etc/quartz-build-id"
+echo "build id: $BUILD_ID"
+
 # 6. 配置：种子 + defconfig 补齐默认项
 step "加载 seed.config（${DEVICE:-x86_64 默认}）并 defconfig"
 cp "$SEED_FILE" "$BASE_DIR/.config"
@@ -187,6 +201,12 @@ if [ -n "$DEVICE" ]; then
     exit 1
   fi
 fi
+
+# 10c. 签名一致性校验（WP-9，docs/SIGNING-OTA.md）：feed 索引签名 key id /
+#      镜像内公钥载荷 / quartz-defaults 的 feed 列表与 OTA 件——发布构建的护栏。
+step "签名一致性校验（WP-9）"
+ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' "$BASE_DIR/.config" | head -1)"
+bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${ARCH_PKGS:-x86_64}"
 
 # 11. 产物收集（与 CI Collect artifacts 一致；同样限定本次目标域）
 step "收集产物 → $ARTIFACTS_DIR"

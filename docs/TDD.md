@@ -190,7 +190,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
     ```
     > **语法注意（2026-10-12 实测）**：`;` 后跟的是**分支名**，`^` 后跟的才是 **commit SHA**（`scripts/feeds` 源码用 `split(/;/)` 与 `split(/\^/)` 区分）。写成 `;`+SHA 会被当作分支执行 `git clone --branch <sha>`，在 GitHub 上报 `Remote branch ... not found` 直接失败。
 *   **基座锁定**：`QuartzWrt-Builder` 必须记录所用 ImmortalWrt 的**分支 + 精确 commit**，不随上游滚动。
-*   **Bump 机制**：定时 CI job（建议每周）检查两个 Feed 与基座的上游更新，自动提交 bump PR，CI 通过后合并——参考 Dependabot 的运作方式。
+*   **Bump 机制**：定时 CI job（每周）检查两个 Feed 与基座的上游更新，自动提交 bump PR，CI 通过后合并——参考 Dependabot 的运作方式。**已落地（2026-10-14）**：`.github/workflows/bump.yml`（每周一 + 手动；轻量检查 + 开 PR，**不触发构建**——合并前按 PR 检查单做本地全量 / 手动 CI 权威验收；另附受控 Fork 上游发版观察）。
 
 ### 4.3 第三方包版本升级工作流
 
@@ -325,7 +325,7 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 5.  **Device Apply**: 设备适配层应用（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6）。
 6.  **Config & Build**: 加载 `.config`（设备构建用 `devices/<名>/seed.config`）-> `make defconfig` -> `make -j$(nproc)`。
 7.  **Manifest Verify**: 公共断言（= `quartz-defaults` DEPENDS 全清单在列 + docker 反向断言）+ 设备断言（`scripts/check-manifest.sh`）+ 设备成品镜像存在性（§4.6）。
-8.  **Sign & Release**: 按 §7.3 的 apk 签名体系对 `.apk` 与固件镜像签名，打包上传至 GitHub Releases。
+8.  **Sign & Release**: 构建前注入稳定签名密钥（§7.3：Secrets → 构建树），构建后 `scripts/verify-signing.sh` 强校验（索引签名 key id / 公钥载荷 / feed 列表）；`publish=yes` 时经 `scripts/publish-feed.sh` 整理 feed + OTA 清单并同步到托管（S3 兼容，如 Cloudflare R2）。打包上传至 GitHub Releases。
 
 ### 7.2 编译优化与缓存
 
@@ -336,9 +336,9 @@ CI 是**权威构建与发布通道**：正式产物以 CI 编译结果为准，
 ### 7.3 包签名、包管理器与 OTA
 
 *   **包管理器**：**已定案 apk**（基座锁定 ImmortalWrt 25.12，apk 体系）。
-*   **签名密钥**：采用 apk 体系要求的 RSA 密钥对（由构建系统 key-build 生成），私钥存放于 GitHub Secrets，CI 自动签名；公钥随 `quartz-defaults` 预置。usign（opkg 时代方案）不再适用。
-*   **固件签名**：固件镜像与 `.apk` 包统一走上述签名体系，App/Web 升级前校验。
-*   **OTA 通道**：规划 Attended Sysupgrade (ASU) 或自定义 OTA 通道，作为 App 触发固件升级的统一入口；升级流程强制签名校验。
+*   **签名密钥**：apk 体系的签名密钥为 **EC prime256v1（P-256）密钥对**（构建树内固定名 `private-key.pem`/`public-key.pem`；**未注入时基座为每个全新构建树自生成临时密钥**，故发布构建必须注入稳定密钥）。**签的是各 feed 的 `packages.adb` 索引**（`apk mkndx --sign`），单包不签名、完整性由索引哈希链保证；索引签名块 key id = sha512(EC 原始点)[:16]。私钥存放于 GitHub Secrets（`APK_SIGNING_PRIVATE_KEY`，CI 构建前注入构建树），公钥随 `quartz-defaults` 预置（`/etc/apk/keys/quartz.pem`，与 base-files 自动投放的 `public-key.pem` 并存）。工具：Builder `scripts/gen-signing-key.sh`（生成）/`inject-signing-key.sh`（注入+一致性校验）/`verify-signing.sh`（构建后强校验）；完整设计见 Builder `docs/SIGNING-OTA.md`。usign（opkg 时代方案）不用于包签名。
+*   **固件签名**：apk 时代 sysupgrade 的 usign/ucert 镜像签名路径在基座镜像中失效（镜像未装 `ucert`，验签函数直接放行）——**镜像真实性由 OTA 通道承担**：OTA 版本清单用 usign（Ed25519，公钥 `/etc/quartz-ota.pub`）签名 + 清单内镜像 sha256 校验 + `sysupgrade` 平台/元数据预检（`-T`）。清单与镜像由 `scripts/publish-feed.sh` 随 feed 一并发布（`ota/<board>/<subtarget>.json(.sig)`）。
+*   **OTA 通道（已定案，2026-10-14）**：v1 = **自定义 OTA 通道**（自有 feed 托管 + 签名清单 + `quartz-ota-update`，端到端演练通过）；**ASU 暂不采用**（上游 ASU 只从官方 feed 构建，无法携带 Quartz 定制与设备适配；自建 ASU 服务为 v2 候选，形态见 `docs/SIGNING-OTA.md` §7）。App 触发入口经 WP-5 动作白名单封装（v2）。
 
 ### 7.4 本地构建工作流（开发迭代）
 
@@ -361,7 +361,8 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 | 第三方包引入方式 | 薄 Makefile + 版本锁定 | 禁止 Submodule/Fork，见 §3.1 |
 | 同名包冲突 | 优先重命名 + CI 强制检查 | 见 §4.5 |
 | 包管理器 | apk | 基座定为 ImmortalWrt 25.12（apk 体系），见 §7.3 |
-| 签名体系 | apk RSA (key-build) | 见 §7.3 |
+| 签名体系 | apk EC P-256 稳定密钥（索引签名 `packages.adb`；私钥 → Secrets，公钥 → `quartz-defaults` 预置） | 见 §7.3；WP-9 落地（Builder `docs/SIGNING-OTA.md`） |
+| OTA 通道 | 自定义 OTA 通道（usign 签名清单 + 镜像 sha256 + sysupgrade）；ASU 暂缓（v2 候选，须自建服务） | WP-9 评估 + 端到端演练（2026-10-14）；见 Builder `docs/SIGNING-OTA.md` §6/§7 |
 | 本地构建 | 方案一：脚本复刻 CI 步骤（`scripts/build-local.sh`），定位于开发迭代 | 正式产物仍以 CI 为准，见 §7.1、§7.4 |
 | CI 触发 | 仅手动 `workflow_dispatch`（不随 push/PR 自动运行） | 日常验证走本地构建；CI 用于发布前/重大变更后的权威验收，见 §7.1 |
 | UI 隔离 | Tailwind utilities 采用 `qz:` 前缀（v4 变体语法）+ `source(none)` 精确扫描；主题 cascade.css 入层（层序 theme < base < qz-theme < components < utilities），preflight 归 base 并辅以显式中和规则 | 2026-10-12 实测通过（WP-2 spike，`dev/spike/tailwind/RESULTS.md`）：生产配置零污染且 utilities 正常生效 |
@@ -372,7 +373,6 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 | 模块 | 待决事项 (Open Questions) | 建议方案 / 思考方向 |
 | :--- | :--- | :--- |
 | **App 推送** | 路由器在内网，如何向 App 推送断网/告警消息？ | 固件端预留 Webhook 接口，集成 Bark / PushDeer / Telegram Bot 等第三方推送服务。 |
-| **OTA 通道** | ASU 还是自定义升级服务？ | 优先评估 ASU（社区成熟方案）；自定义方案须完整实现签名校验。 |
 
 ---
 
@@ -381,7 +381,7 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 ### Phase 1: 基础设施与双 Feed 骨架 (Week 1-2)
 - [ ] 确立 QuartzWrt 品牌视觉 (Logo、UI 设计稿、CSS 变量规范)。
 - [ ] 搭建 `Builder`、`QuartzWrt-Packages` 与 `QuartzWrt-ThirdParty` 三个仓库骨架。
-- [ ] **确定包管理器（opkg/apk）并初始化 usign 签名密钥对。**
+- [ ] **确定包管理器（apk）并初始化 apk 签名密钥对（EC P-256，§7.3）。**
 - [ ] 跑通 GitHub Actions CI/CD 流水线，实现双 Feed 注入（含 commit 锁定与同名包检查）与 ImmortalWrt 原版固件的自动编译。
 - [ ] 交付本地构建脚本 `scripts/build-local.sh`（与 CI 步骤一致，§7.4）。
 - [ ] 搭建前端脚手架 (Vite + Tailwind)，验证 CSS 隔离方案。
@@ -400,7 +400,7 @@ CI 与本地构建分工明确：**CI 覆盖"干净环境可重现性"与发布*
 - [ ] 多硬件目标测试 (x86_64, 主流 ARM 软路由如 R4S/R5S)。
 - [ ] 完善 `thirdparty` Feed 的版本锁定、自动 Bump 与 CI 缓存策略调优。
 - [ ] **运行时资源锁定清单上线，核心/规则库版本状态接入 API。**
-- [ ] 建立固件与软件仓库的 usign 签名机制，落地 ASU/OTA 升级通道原型。
+- [ ] 建立软件源 apk 索引签名与固件 OTA 签名清单机制，落地 OTA 升级通道原型（ASU 评估结论见 §7.3）。
 - [ ] **发布 QuartzWrt v1.0.0 MVP 版本。**
 
 ---

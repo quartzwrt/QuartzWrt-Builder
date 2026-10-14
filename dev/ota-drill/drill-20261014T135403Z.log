@@ -1,0 +1,190 @@
+
+==> [13:54:03] 前置检查
+旧镜像: /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/immortalwrt-x86-64-generic-ext4-combined.img
+构建树: /home/nrxboat/quartzwrt/QuartzWrt-Builder/../build/immortalwrt
+演练目录: /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill（feed: /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed）
+HTTP 端口: 9992；VM 端口: luci=8180 ssh=2322 app=8543
+
+==> [13:54:03] 发布 feed + OTA 清单 → /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed
+
+==> 整理 feed：quartz,thirdparty（arch=x86_64）→ /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed/packages/x86_64/
+  quartz: 16 包，5.8M
+  thirdparty: 27 包，9.5M
+
+==> 整理目标包 → /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed/targets/x86/64/packages/
+  目标包: 194 个
+
+==> 整理镜像 → /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed/targets/x86/64/
+  镜像: 4 个
+
+==> 生成 OTA 清单（usign 签名）
+  /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed/ota/x86/64.json (+ .sig)
+
+==> 签名一致性校验
+== 签名验证：/home/nrxboat/quartzwrt/QuartzWrt-Builder/../build/immortalwrt
+   apk 公钥：/home/nrxboat/quartzwrt/QuartzWrt-Builder/../build/immortalwrt/public-key.pem
+   apk key id：6947a869aad621cb2a8c0765c39ea104
+-- ① feed 索引签名
+  PASS: quartz: 索引签名 key id 匹配（6947a869aad621cb…）
+  PASS: thirdparty: 索引签名 key id 匹配（6947a869aad621cb…）
+-- ② 镜像 base-files 公钥载荷（目标：x86/64）
+  PASS: base-files-1954~ce35a9e4ef.apk: public-key.pem == 稳定公钥
+-- ③ quartz-defaults 载荷
+  PASS: quartz.pem == 稳定公钥（随固件预置）
+  PASS: quartz-ota.pub 在列
+  PASS: quartz-ota-update 在列
+  PASS: quartz-ota.pub == 仓库 OTA 公钥
+  PASS: quartz-feed.list 在列且指向 http://192.168.1.2:9992
+== 结果：PASS=8 FAIL=0
+
+==> 发布记录
+QuartzWrt feed publish
+date:      2026-10-14T13:54:04Z
+build_id:  20261014T2145Z-wp9drill
+arch:      x86_64
+target:    x86/64
+feeds:     quartz,thirdparty
+dest:      /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed
+apk key id: 6947a869aad621cb2a8c0765c39ea104
+ota key:   00b0cef78d463a09
+size:      178M
+
+==> 完成 ✔ 发布目录：/home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed（可整体同步到托管：R2/S3/静态主机，根即 URL 根）
+
+==> [13:54:04] 准备演练载荷（drill/）
+  载荷：quartz-feed.list quartz-ota.pub quartz-ota-update quartz.pem 
+
+==> [13:54:04] 生成反例仓库（rogue/，异钥签名）
+  rogue 索引：5367 字节（rogue 私钥 /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/rogue.key）
+
+==> [13:54:04] 启动 HTTP 服务（: 9992）
+  OK：清单可访问
+
+==> [13:54:05] 启动演练 VM（全新覆盖层，端口 8180/2322/8543）
+  VM pid: 1945897，等待 SSH 就绪…
+  SSH 就绪（第 1 次探测）
+
+==> [13:54:43] 记录演练前状态
+--- [vm] 固件版本 :: cat /etc/openwrt_release | grep -E 'DISTRIB_(REVISION|TARGET)'; echo -n 'build-id: '; cat /etc/quartz-build-id 2>/dev/null || echo '(无)'
+    DISTRIB_REVISION='r0+38247-ce35a9e4ef'
+    DISTRIB_TARGET='x86/64'
+    build-id: (无)
+--- [vm] 关键包版本（升级前） :: apk list --installed 2>/dev/null | grep -E 'luci-theme-quartz|luci-app-dashboard|quartz-defaults|luci-app-bandix' | awk '{print $1}'
+    luci-app-bandix-0.12.12-r1
+    luci-app-dashboard-26.287.40298~f9f7488
+    luci-i18n-bandix-zh-cn-26.287.35595~75a8e4f
+    luci-i18n-qdashboard-zh-cn-26.287.40298~f9f7488
+    luci-theme-quartz-26.287.40298~f9f7488
+    quartz-defaults-0.1.0-r1
+--- [vm] WAN 检查 :: ip route | grep -q default && echo WAN_OK || echo WAN_MISSING
+    WAN_OK
+--- [vm] WAN 兜底（缺默认路由则补配 eth1/dhcp） :: ip route | grep -q default || { uci -q get network.wan >/dev/null 2>&1 || { uci set network.wan=interface; uci set network.wan.proto=dhcp; uci set network.wan.device=eth1; uci commit network; }; /etc/init.d/network reload; sleep 4; /etc/init.d/firewall reload; ip route | grep -q default && echo WAN_FIXED || echo WAN_STILL_MISSING; }
+    
+
+==> [13:54:44] A. 包升级链路
+--- [vm] A1 预置 feed 公钥（模拟随固件投放） :: wget -q -O /etc/apk/keys/quartz.pem http://192.168.1.2:9992/drill/quartz.pem && ls -l /etc/apk/keys/quartz.pem
+    -rw-r--r--    1 root     root           178 Oct 14 21:54 /etc/apk/keys/quartz.pem
+  PASS: A1 预置 feed 公钥（模拟随固件投放）
+--- [vm] A2 接入自有 feed（quartz-feed.list） :: wget -q -O /etc/apk/repositories.d/quartz-feed.list http://192.168.1.2:9992/drill/quartz-feed.list && cat /etc/apk/repositories.d/quartz-feed.list
+    # QuartzWrt 自有 feed（D10 阶段 1；由 quartz-defaults 生成）
+    http://192.168.1.2:9992/packages/x86_64/quartz/packages.adb
+    http://192.168.1.2:9992/packages/x86_64/thirdparty/packages.adb
+    http://192.168.1.2:9992/targets/x86/64/packages/packages.adb
+  PASS: A2 接入自有 feed（quartz-feed.list）
+--- [vm] A3 apk update（索引签名验签通过） :: apk update 2>&1 | tail -3
+     [http://192.168.1.2:9992/packages/x86_64/thirdparty/packages.adb]
+     [http://192.168.1.2:9992/targets/x86/64/packages/packages.adb]
+    OK: 10521 distinct packages available
+  PASS: A3 apk update（索引签名验签通过）
+--- [vm] A4 断言：自有源索引可用 :: apk list --available luci-theme-quartz 2>/dev/null | head -3
+    luci-theme-quartz-26.287.40298~f9f7488 noarch {feeds/quartz/feeds/quartz/luci/theme/luci-theme-quartz} (Apache-2.0)
+    luci-theme-quartz-26.287.44103~07fdb77 noarch {/home/nrxboat/quartzwrt/QuartzWrt-Packages/luci/theme/luci-theme-quartz} (Apache-2.0) [upgradable from: luci-theme-quartz-26.287.40298~f9f7488]
+    luci-theme-quartz-26.287.47060~19dfe25 noarch {/home/nrxboat/quartzwrt/QuartzWrt-Packages/luci/theme/luci-theme-quartz} (Apache-2.0) [upgradable from: luci-theme-quartz-26.287.40298~f9f7488]
+--- [vm] A5 反例：异钥签名的源被拒绝 :: sed -i 's|/packages/x86_64/thirdparty/packages.adb|/drill/rogue/packages.adb|' /etc/apk/repositories.d/quartz-feed.list; apk update 2>&1 | grep -iE 'untrusted|BAD|invalid' | head -3; echo '--- add 尝试:'; apk add luci-app-mosdns 2>&1 | tail -3
+    WARNING: updating and opening http://192.168.1.2:9992/drill/rogue/packages.adb: UNTRUSTED signature
+    --- add 尝试:
+    ERROR: unable to select packages:
+      luci-app-mosdns (no such package):
+        required by: world[luci-app-mosdns]
+--- [vm] A5b 反例断言（luci-app-mosdns 不可安装） :: apk add --simulate luci-app-mosdns >/dev/null 2>&1 && echo ROGUE_ACCEPTED || echo ROGUE_REJECTED
+    ROGUE_REJECTED
+--- [vm] A6 恢复合法源 :: wget -q -O /etc/apk/repositories.d/quartz-feed.list http://192.168.1.2:9992/drill/quartz-feed.list && apk update >/dev/null 2>&1 && echo restored
+    restored
+  PASS: A6 恢复合法源
+--- [vm] A7 apk upgrade（真升级） :: apk upgrade 2>&1 | tail -5
+    (5/6) Upgrading luci-i18n-quartz-config-zh-cn (26.287.40298~f9f7488 -> 26.287.44103~07fdb77)
+      Executing luci-i18n-quartz-config-zh-cn-26.287.44103~07fdb77.post-upgrade
+    (6/6) Upgrading quartz-defaults (0.1.0-r1 -> 0.1.0-r2)
+      Executing quartz-defaults-0.1.0-r2.post-upgrade
+    OK: 89.7 MiB in 359 packages
+  PASS: A7 apk upgrade（真升级）
+--- [vm] A8 升级后版本 :: apk list --installed 2>/dev/null | grep -E 'luci-theme-quartz|luci-app-dashboard|quartz-defaults|luci-app-bandix' | awk '{print $1}'
+    luci-app-bandix-0.12.12-r1
+    luci-app-dashboard-26.287.44891~4276a56
+    luci-i18n-bandix-zh-cn-26.287.35595~75a8e4f
+    luci-i18n-qdashboard-zh-cn-26.287.44098~8b7a2da
+    luci-theme-quartz-26.287.47060~19dfe25
+    quartz-defaults-0.1.0-r2
+
+==> [13:55:27] B. 固件 OTA 链路
+  目标 build id：20261014T2145Z-wp9drill
+--- [vm] B1 投放 OTA 验签公钥 + 升级脚本（模拟随固件投放） :: wget -q -O /etc/quartz-ota.pub http://192.168.1.2:9992/drill/quartz-ota.pub && wget -q -O /usr/sbin/quartz-ota-update http://192.168.1.2:9992/drill/quartz-ota-update && chmod +x /usr/sbin/quartz-ota-update && echo ok
+    ok
+  PASS: B1 投放 OTA 验签公钥 + 升级脚本（模拟随固件投放）
+--- [vm] B2 --check（期望：有新版本，退出码 10） :: quartz-ota-update --url http://192.168.1.2:9992 --check; echo EXIT=$?
+    ==> OTA 源：http://192.168.1.2:9992/ota/x86/64.json
+        OK：清单签名有效
+        本机 build id：unknown
+        远端 build id：20261014T2145Z-wp9drill（r0+38247-ce35a9e4ef）
+    ==> 可用镜像：immortalwrt-x86-64-generic-ext4-combined.img.gz（43698429 字节）
+    ==> 有新版本可用（--apply 执行升级）
+    EXIT=10
+
+==> [13:55:30] B3 --apply（sysupgrade -n，VM 将重启）
+--- [vm] B3 执行升级 :: quartz-ota-update --url http://192.168.1.2:9992 --apply
+    ==> OTA 源：http://192.168.1.2:9992/ota/x86/64.json
+        OK：清单签名有效
+        本机 build id：unknown
+        远端 build id：20261014T2145Z-wp9drill（r0+38247-ce35a9e4ef）
+    ==> 可用镜像：immortalwrt-x86-64-generic-ext4-combined.img.gz（43698429 字节）
+    ==> 下载 http://192.168.1.2:9992/targets/x86/64/immortalwrt-x86-64-generic-ext4-combined.img.gz
+        OK：sha256 校验通过
+    ==> sysupgrade 预检（-T）
+    Wed Oct 14 21:55:38 CST 2026 upgrade: Image metadata not present
+    Wed Oct 14 21:55:38 CST 2026 upgrade: Reading partition table from bootdisk...
+    Wed Oct 14 21:55:38 CST 2026 upgrade: Extract boot sector from the image
+    Wed Oct 14 21:55:38 CST 2026 upgrade: Reading partition table from image...
+    ==> 开始升级（sysupgrade ）
+    Wed Oct 14 21:55:39 CST 2026 upgrade: Image metadata not present
+    Wed Oct 14 21:55:39 CST 2026 upgrade: Reading partition table from bootdisk...
+    Wed Oct 14 21:55:39 CST 2026 upgrade: Extract boot sector from the image
+    Wed Oct 14 21:55:39 CST 2026 upgrade: Reading partition table from image...
+    Wed Oct 14 21:55:40 CST 2026 upgrade: Commencing upgrade. Closing all shell sessions.
+    Command failed: ubus call system sysupgrade { "prefix": "\/tmp\/root", "path": "\/tmp\/quartz-ota.img.gz", "command": "\/lib\/upgrade\/do_stage2", "options": { "save_partitions": 1, "add_provisioning": 0 } } (Connection failed)
+  等待 VM 重启并恢复 SSH…
+  PASS: B4 VM 重启后 SSH 恢复（第 11 次探测）
+--- [vm] B5 新固件 build id 断言 :: test "$(cat /etc/quartz-build-id)" = "20261014T2145Z-wp9drill" && cat /etc/quartz-build-id
+    20261014T2145Z-wp9drill
+  PASS: B5 新固件 build id 断言
+--- [vm] B6 新固件预置件断言（公钥/feed 行/OTA 脚本） :: test -f /etc/apk/keys/quartz.pem && test -f /etc/quartz-ota.pub && test -f /etc/apk/repositories.d/quartz-feed.list && test -x /usr/sbin/quartz-ota-update && echo all-present
+    all-present
+  PASS: B6 新固件预置件断言（公钥/feed 行/OTA 脚本）
+--- [vm] B7 升级后包版本 :: apk list --installed 2>/dev/null | grep -E 'luci-theme-quartz|luci-app-dashboard|quartz-defaults|luci-app-bandix' | awk '{print $1}'
+    luci-app-bandix-0.12.12-r1
+    luci-app-dashboard-26.287.44891~4276a56
+    luci-i18n-bandix-zh-cn-26.287.35595~75a8e4f
+    luci-i18n-qdashboard-zh-cn-26.287.44098~8b7a2da
+    luci-theme-quartz-26.287.47060~19dfe25
+    quartz-defaults-0.1.0-r2
+--- [vm] B8 自有 feed 在新固件上可用（apk update + 已最新） :: apk update >/dev/null 2>&1 && quartz-ota-update --url http://192.168.1.2:9992 --check >/dev/null 2>&1 && echo up-to-date
+    up-to-date
+  PASS: B8 自有 feed 在新固件上可用（apk update + 已最新）
+--- [vm] B9 固件信息 :: cat /etc/openwrt_release | grep DISTRIB_REVISION; uname -r
+    DISTRIB_REVISION='r0+38247-ce35a9e4ef'
+    6.12.112
+
+==> [13:57:30] 演练汇总
+PASS=10 FAIL=0
+日志：/home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/drill-20261014T135403Z.log
+摘要：/home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/summary-20261014T135403Z.json
+（--keep：保留 VM 与 HTTP 服务）

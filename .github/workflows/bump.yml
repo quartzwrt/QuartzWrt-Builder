@@ -1,0 +1,138 @@
+name: Bump locks & upstream watch
+
+# 自动 Bump CI（WP-9；TDD §4.2「Bump 机制」/ §4.3「升级工作流」）：
+#   - 定时（每周一 03:00 UTC）+ 手动触发；
+#   - 检查三处锁定是否有上游更新：ImmortalWrt 基座（config/base.env）、
+#     quartz / thirdparty feed（config/feeds.conf.extra 的 ^SHA）；
+#   - 有更新 → 改锁定 → 推 bump/ 分支 → 开 PR（正文含验证检查单）；
+#   - 另跑「上游发版观察」（thirdparty 受控 Fork 的上游仓库最新 tag/提交，只报告不动作）。
+#
+# 与构建策略的关系（2026-10-12 用户拍板）：本工作流**只做轻量检查与开 PR**，
+# 不触发全量构建——合并前由维护者手动跑 `gh workflow run build.yml` 或本地
+# build-local.sh 做权威验收（TDD §7.1）。
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Builder
+        uses: actions/checkout@v4
+
+      - name: Check locked refs vs upstream
+        id: check
+        run: |
+          set -euo pipefail
+          changed=0
+          body=""
+
+          # ① 基座（config/base.env）
+          . config/base.env
+          base_new="$(git ls-remote "https://github.com/${BASE_OWNER_REPO}.git" "refs/heads/${BASE_BRANCH}" | cut -f1)"
+          echo "base: locked=${BASE_COMMIT:0:12} upstream=${base_new:0:12}"
+          if [ -n "$base_new" ] && [ "$base_new" != "$BASE_COMMIT" ]; then
+            sed -i "s/^BASE_COMMIT=.*/BASE_COMMIT=$base_new/" config/base.env
+            body="${body}- 基座 \`${BASE_OWNER_REPO}@${BASE_BRANCH}\`：\`${BASE_COMMIT:0:12}\` → \`${base_new:0:12}\`（**需重验设备补丁**：docs/TDD.md §4.6）"$'\n'
+            changed=1
+          fi
+
+          # ② 双 Feed（config/feeds.conf.extra，行尾 ^SHA）
+          for feed in quartz thirdparty; do
+            url="$(sed -n "s|^src-git $feed \([^ ^]*\)\^.*|\1|p" config/feeds.conf.extra)"
+            old="$(sed -n "s|^src-git $feed [^ ^]*\^\([0-9a-f]*\)$|\1|p" config/feeds.conf.extra)"
+            [ -n "$url" ] && [ -n "$old" ] || { echo "FAIL: 无法解析 $feed 锁定行"; exit 1; }
+            new="$(git ls-remote "$url" refs/heads/main | cut -f1)"
+            echo "$feed: locked=${old:0:12} upstream=${new:0:12}"
+            if [ -n "$new" ] && [ "$new" != "$old" ]; then
+              sed -i "s|^src-git $feed \([^ ^]*\)\^[0-9a-f]*$|src-git $feed \1^$new|" config/feeds.conf.extra
+              body="${body}- \`$feed\`：\`${old:0:12}\` → \`${new:0:12}\`（\`$url\`）"$'\n'
+              changed=1
+            fi
+          done
+
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          {
+            echo "body<<EOF"
+            printf '%s' "$body"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create bump PR
+        if: steps.check.outputs.changed == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch="bump/locks-$(date -u +%Y%m%d)"
+          git config user.name "quartzwrt-bump[bot]"
+          git config user.email "bump@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add config/base.env config/feeds.conf.extra
+          git commit -m "WP-1/WP-7: 锁定 bump（自动检查）——$(date -u +%F)"
+          git push -u origin "$branch" --force
+
+          cat > /tmp/pr-body.md <<EOF
+          定时锁定检查发现上游更新：
+
+          ${{ steps.check.outputs.body }}
+          **合并前验证检查单（TDD §4.3）**：
+          - [ ] 单包编译（涉及包：\`make package/feeds/<feed>/<pkg>/{clean,compile}\`）
+          - [ ] 本地全量 \`scripts/build-local.sh\` 通过（含同名包检查 / manifest 断言 / 签名校验）
+          - [ ] 设备构建（若基座 bump）：\`--device erya_fnet-3399\` 补丁重验 + 镜像核验
+          - [ ] 需要时手动 CI 权威验收：\`gh workflow run build.yml\`
+          - [ ] thirdparty 涉及镜像/fork：按 \`QuartzWrt-ThirdParty/docs/FORKS.md\` 发布前检查单同步并复验
+
+          由 \`.github/workflows/bump.yml\` 自动生成（仅改锁定，不做任何构建）。
+          EOF
+
+          gh pr create --title "锁定 bump：$(date -u +%F) 上游更新" \
+            --body-file /tmp/pr-body.md --base main --head "$branch" \
+            || echo "PR 已存在或创建失败（分支已推送，可手动开 PR）"
+
+      - name: No updates
+        if: steps.check.outputs.changed != '1'
+        run: echo "所有锁定均为上游最新——无需 bump。"
+
+  upstream-watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Builder
+        uses: actions/checkout@v4
+
+      - name: Watch upstreams of controlled forks (informational)
+        run: |
+          set -uo pipefail
+          echo "== 受控 Fork 上游观察（只报告，不动作；台账 QuartzWrt-ThirdParty/docs/FORKS.md） =="
+          # 从 FORKS.md 提取所有 github.com 仓库 URL（上游 + fork），逐个报最新 tag 与默认分支头
+          repos="$(grep -oE 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+' \
+                    QuartzWrt-ThirdParty/docs/FORKS.md 2>/dev/null | sort -u || true)"
+          if [ -z "$repos" ]; then
+            # Builder 单独检出时 FORKS.md 不在本仓库——按已知清单兜底
+            repos="$(printf '%s\n' \
+              https://github.com/FUjr/QModem \
+              https://github.com/timsaya/openwrt-bandix \
+              https://github.com/timsaya/luci-app-bandix \
+              https://github.com/sbwml/luci-app-mosdns)"
+          fi
+          {
+            echo "### 上游发版观察"
+            echo ""
+            echo "| 仓库 | 最新 tag | 默认分支头 | 日期 |"
+            echo "| :--- | :--- | :--- | :--- |"
+            for r in $repos; do
+              tag="$(git ls-remote --tags --sort=-v:refname "$r" 2>/dev/null | grep -v '\^{}' | head -1 | sed 's|.*refs/tags/||')"
+              head_sha="$(git ls-remote "$r" HEAD 2>/dev/null | cut -f1)"
+              date="$(git ls-remote --tags --sort=-creatordate "$r" 2>/dev/null | grep -v '\^{}' | head -1 | awk '{print $1}' | cut -c1-7 || true)"
+              echo "| [$r]($r) | ${tag:-?} | ${head_sha:0:10} | ${date:-?} |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "（对照 FORKS.md 的锁定/上次同步日期判断是否需要同步；有适配改动时先 rebase quartz 分支再复验。）"

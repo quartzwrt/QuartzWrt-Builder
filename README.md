@@ -18,8 +18,14 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/test-in-docker.sh` | 本地镜像 Docker 快速预览：导入 rootfs 起最小服务链，浏览器看真实 LuCI（主题/Dashboard 视觉验证用；不含内核/网络/防火墙——那些走 QEMU） |
 | `scripts/test-in-vm.sh` | QEMU/KVM 真启动测试：完整引导链（BIOS→GRUB→内核）、procd 首次启动、网络栈；交互串口 / `--detach` / `--stop`（2026-10-12 实测通过；x86 目标） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
-| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 输入切换设备目标） |
+| `scripts/gen-signing-key.sh` / `inject-signing-key.sh` / `verify-signing.sh` | WP-9 签名密钥：生成（一次性）/ 构建树注入（+密钥一致性校验）/ 构建后签名强校验（docs/SIGNING-OTA.md） |
+| `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签） |
+| `scripts/ota-drill.sh` | WP-9 端到端演练：独立 QEMU 实例上跑「包升级链路 + 固件 OTA 链路」（含异钥反例） |
+| `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 切换设备目标；`publish` 发布 feed/OTA） |
+| `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/双 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
+| `docs/SIGNING-OTA.md` | WP-9 设计与运行手册：签名体系、公钥预置、软件源发布（D10 阶段 1/2 与 #41 翻转条件）、OTA 原型、ASU 评估、Bump CI |
+| `dev/ota-drill/` | WP-9 演练证据（日志 / summary.json / PUBLISH.txt） |
 
 ## CI 构建（仅手动触发）
 
@@ -39,10 +45,32 @@ gh workflow run build.yml
 - ✅ 基座锁定：`config/base.env`（ImmortalWrt 25.12 @ ce35a9e4）。
 - ✅ 双 Feed 锁定：`config/feeds.conf.extra` 已从 `;main` 改为 commit SHA；升级时更新 SHA 并触发全量 CI 验证。
 - ✅ 第三方包校验和：`PKG_MIRROR_HASH` 已回填（thirdparty feed）。
-- ⏳ 待办：首次构建成功后，用基座树中 `./scripts/diffconfig.sh` 的输出回填 `config/seed.config`。
-- ⏳ 待办：将 apk 签名私钥加入 GitHub Secrets，按 §7.3 接入 CI 签名步骤。
+- ✅ apk 签名与 OTA（WP-9，2026-10-14）：稳定 EC 签名密钥（Secrets → 构建注入）+ 公钥随
+  `quartz-defaults` 预置 + 签名校验 + feed/OTA 发布管线 + 端到端演练（见 `docs/SIGNING-OTA.md`）。
+- ⏳ 待办：托管凭据（R2/S3 Secrets）与 `seed.config` 的 `CONFIG_QUARTZ_FEED_BASE_URL` 填写
+  （D10 阶段 1 翻转，条件见 `docs/SIGNING-OTA.md` §5）。
 
 > 注意：`scripts/feeds` 的解析器只把 `#` 后跟至少一个字符的行当注释，**单独的 `#` 行会报语法错误**（见 `config/feeds.conf.extra` 中的说明）。
+
+## 签名与发布（WP-9，docs/SIGNING-OTA.md）
+
+```bash
+# ① 生成长期签名密钥（一次性；输出 ~/.quartz-signing，私钥不入 git）
+scripts/gen-signing-key.sh
+# ② 公钥入 Packages 仓库（quartz-defaults 预置）；私钥写入 GitHub Secrets（脚本会打印命令）
+
+# ③ 本地构建：注入密钥（QUARTZ_SIGNING_DIR）+ 构建标识 + 构建后签名校验（步骤 5c/10c 自动）
+QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
+
+# ④ 发布 feed + OTA 清单到目录（再整体同步到托管：R2/S3/静态主机）
+scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out
+
+# ⑤ 端到端演练（独立 QEMU：包升级链路 + 固件 OTA 链路，含异钥反例）
+scripts/ota-drill.sh            # 证据落 ../vm/ota-drill/
+```
+
+CI：`gh workflow run build.yml -f publish=yes`（需签名 Secrets；托管凭据 `PUBLISH_S3_*` 可选，
+未配置时 feed 树随 artifact 留档）。锁定自动检查/开 PR：`.github/workflows/bump.yml`（每周一 + 手动）。
 
 ## 基座升级 / 追随新版
 

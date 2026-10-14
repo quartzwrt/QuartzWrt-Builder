@@ -1,0 +1,10 @@
+QuartzWrt feed publish
+date:      2026-10-14T13:54:04Z
+build_id:  20261014T2145Z-wp9drill
+arch:      x86_64
+target:    x86/64
+feeds:     quartz,thirdparty
+dest:      /home/nrxboat/quartzwrt/QuartzWrt-Builder/../vm/ota-drill/feed
+apk key id: 6947a869aad621cb2a8c0765c39ea104
+ota key:   00b0cef78d463a09
+size:      178M

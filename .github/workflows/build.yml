@@ -8,6 +8,12 @@ name: Build QuartzWrt Firmware
 #
 # 设备构建（2026-10-14 起）：workflow_dispatch 的 device 输入为空 = x86_64 默认目标；
 # 填 devices/<名>（如 erya_fnet-3399）= 设备构建（应用 devices/ 适配层 + 设备 seed）。
+#
+# 签名与发布（WP-9，2026-10-14 起，docs/SIGNING-OTA.md）：
+#   构建前注入稳定签名密钥（Secrets：APK_SIGNING_PRIVATE_KEY/PUBLIC_KEY、OTA_SIGNING_KEY）
+#   → feed 索引以稳定密钥签名、固件预置对应公钥；构建后 verify-signing.sh 强校验。
+#   publish=yes 时把 feed/OTA 整理（scripts/publish-feed.sh）并同步到托管
+#   （S3 兼容：R2 等，凭据 Secrets PUBLISH_S3_*；未配置则仅留 artifact）。
 on:
   workflow_dispatch:
     inputs:
@@ -16,9 +22,28 @@ on:
         required: false
         default: ''
         type: string
+      publish:
+        description: '发布 feed/OTA 到托管（WP-9；需签名 Secrets + 托管凭据）'
+        required: false
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
 
 env:
   TZ: Asia/Shanghai
+  # WP-9 签名与发布（docs/SIGNING-OTA.md）：Secrets → 构建树注入。
+  # 注：secrets 上下文不能用于 step 级 if（WP-6 CI 教训），一律经 job 级 env 中转，
+  # 由脚本判空决定行为。未配置密钥时构建仍可进行（开发态临时密钥），但不可发布。
+  APK_SIGNING_PRIVATE_KEY: ${{ secrets.APK_SIGNING_PRIVATE_KEY }}
+  APK_SIGNING_PUBLIC_KEY: ${{ secrets.APK_SIGNING_PUBLIC_KEY }}
+  OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+  PUBLISH_S3_ENDPOINT: ${{ secrets.PUBLISH_S3_ENDPOINT }}
+  PUBLISH_S3_BUCKET: ${{ secrets.PUBLISH_S3_BUCKET }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.PUBLISH_S3_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.PUBLISH_S3_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: auto
 
 jobs:
   build:
@@ -100,6 +125,22 @@ jobs:
           mkdir -p ~/.ccache
           ln -s ~/.ccache immortalwrt/.ccache
 
+      - name: Inject signing key (WP-9 稳定密钥注入)
+        working-directory: immortalwrt
+        run: |
+          if [ -n "${APK_SIGNING_PRIVATE_KEY:-}" ]; then
+            bash ../scripts/inject-signing-key.sh "$PWD" --require
+          elif [ "${{ inputs.publish }}" = "yes" ]; then
+            echo "FAIL: publish=yes 但未配置 APK_SIGNING_PRIVATE_KEY（不能以临时密钥发布）" >&2
+            exit 1
+          else
+            echo "WARN: 未配置签名 Secrets——开发构建，基座将生成临时密钥（feed 不可发布）"
+          fi
+          # 构建标识：随镜像投放 /etc/quartz-build-id（OTA 清单以此判定版本新旧）
+          mkdir -p files/etc
+          printf '%s\n' "$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)" > files/etc/quartz-build-id
+          cat files/etc/quartz-build-id
+
       - name: Load build config
         working-directory: immortalwrt
         run: |
@@ -136,6 +177,53 @@ jobs:
           BIN="bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET"
           img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
           if [ -n "$img" ]; then echo "OK: $img"; else echo "FAIL: 未找到 $DEVICE_IMAGE_GLOB"; exit 1; fi
+
+      - name: Verify signing (WP-9 签名一致性)
+        working-directory: immortalwrt
+        run: |
+          ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' .config | head -1)"
+          if [ -n "${APK_SIGNING_PRIVATE_KEY:-}" ]; then
+            bash ../scripts/verify-signing.sh "$PWD" --arch "${ARCH_PKGS:-x86_64}"
+          else
+            echo "SKIP: 未配置签名密钥（开发构建）"
+          fi
+
+      - name: Stage feed / OTA publish tree (WP-9 发布整理)
+        if: ${{ inputs.publish == 'yes' }}
+        working-directory: immortalwrt
+        run: |
+          ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' .config | head -1)"
+          if [ -n "${{ inputs.device }}" ]; then
+            . "../devices/${{ inputs.device }}/device.env"
+            BOARD="$DEVICE_TARGET"; SUB="$DEVICE_SUBTARGET"
+          else
+            BOARD="x86"; SUB="64"
+          fi
+          bash ../scripts/publish-feed.sh --base-dir "$PWD" --dest ../feed-out \
+            --arch "${ARCH_PKGS:-x86_64}" --board "$BOARD" --subtarget "$SUB"
+          find ../feed-out -maxdepth 3 -type d | sort | head -20
+          du -sh ../feed-out
+
+      - name: Sync feed to host (S3 兼容托管，如 Cloudflare R2)
+        if: ${{ inputs.publish == 'yes' && env.PUBLISH_S3_BUCKET != '' }}
+        run: |
+          aws s3 sync feed-out "s3://${PUBLISH_S3_BUCKET}/" --endpoint-url "${PUBLISH_S3_ENDPOINT}" \
+            --delete --no-progress
+          echo "OK: feed 已同步到 ${PUBLISH_S3_BUCKET}（${PUBLISH_S3_ENDPOINT}）"
+
+      - name: Note missing host credentials (发布未同步)
+        if: ${{ inputs.publish == 'yes' && env.PUBLISH_S3_BUCKET == '' }}
+        run: |
+          echo "WARN: publish=yes 但未配置 PUBLISH_S3_BUCKET/PUBLISH_S3_ENDPOINT/PUBLISH_S3_ACCESS_KEY_ID/PUBLISH_S3_SECRET_ACCESS_KEY"
+          echo "      feed 树已随 artifact 上传（quartzwrt-feed-*），可手工同步到托管。"
+
+      - name: Upload publish tree (发布产物留档)
+        if: ${{ inputs.publish == 'yes' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: quartzwrt-feed-${{ inputs.device != '' && inputs.device || 'x86_64' }}
+          path: feed-out/
+          retention-days: 14
 
       - name: Collect artifacts
         working-directory: immortalwrt

@@ -1,0 +1,254 @@
+# QuartzWrt 签名与 OTA 通道设计（WP-9）
+
+**状态**: v1.0（2026-10-14 落地并端到端验证）
+**范围**: apk 签名密钥体系、CI 签名、公钥预置、软件源发布（D10 阶段 1/2）、
+#41 翻转条件、OTA 通道原型、ASU 评估、第三方自动 Bump CI
+**相关**: `docs/TDD.md` §4.2/§4.3/§7.3；`QuartzWrt-ThirdParty/docs/DESIGN.md` §4.5（D10）；
+WORKPLAN §3 WP-9、坑位 #41/#50
+
+---
+
+## 1. 签名体系（apk 时代，锁定基座 ce35a9e4 实测）
+
+### 1.1 机制事实（源码 + 实测）
+
+| 事实 | 依据 |
+| :--- | :--- |
+| apk 签名密钥 = **EC prime256v1**（非 RSA；TDD 旧文"RSA 密钥对"为 opkg 时代措辞） | 基座 `package/Makefile`：`openssl ecparam -name prime256v1 -genkey -noout -out $(BUILD_KEY_APK_SEC)` |
+| 密钥文件固定名：`$(TOPDIR)/private-key.pem`（签名）/ `public-key.pem`（验签） | 基座 `rules.mk`：`BUILD_KEY_APK_SEC/PUB` |
+| **未注入时每个全新构建树自动生成一把临时密钥** | 同上（`$(BUILD_KEY_APK_SEC):` 规则）——所以"稳定密钥"必须外部注入 |
+| 签的是**索引**（`packages.adb`），不是单个 `.apk`：`apk mkndx --sign <私钥>`；包完整性由索引内哈希链保证 | 基座 `package/Makefile`（merge-index / index 目标）；`apk extract` 对未签名单包报 UNTRUSTED 即"单包无签名" |
+| 索引签名块：`# sig v00 h04 <key id:16B><ECDSA 签名>`；**key id = sha512(EC 原始点 65B)[:16]** | apk 源码 `crypto_openssl.c apk_pkey_init`（`i2d_PublicKey`→sha512→前 16 字节）；实测与 `adbdump` 输出逐字节一致 |
+| 公钥随固件投放 `/etc/apk/keys/`；apk **按内容 id 匹配**、文件名任意 | 基座 `package/base-files/Makefile` `Package/base-files/install-key`（`CONFIG_BUILDBOT` 未设时生效）；apk 源码 `adb_trust_verify_signature` |
+| `CONFIG_SIGNED_PACKAGES` 默认 `y` | `config/Config-build.in` |
+| **镜像本体在 apk 时代没有可用的密码学签名路径**：`Build/append-metadata` 的 usign/ucert 签名需要 `key-build`+`key-build.ucert`，而验签端 `fwtool_check_signature` 依赖 `/usr/bin/ucert`——本基座镜像**未装 ucert**（实测 manifest 无此包）→ 该路径整体失效（TDD "usign 不再适用"成立） | 基座 `include/image-commands.mk`、`package/base-files/files/lib/upgrade/fwtool.sh`；镜像 manifest 实测 |
+| sysupgrade 的实际校验 = 元数据设备匹配（`fwtool_check_image`）+ 平台检查（x86：魔数/分区表）+ 传输完整性；**镜像真实性由 OTA 通道的"清单签名 + sha256"承担**（见 §7） | 基座 `usr/libexec/validate_firmware_image`、`target/linux/x86/base-files/lib/upgrade/platform.sh` |
+
+### 1.2 QuartzWrt 的两把长期密钥
+
+| 密钥 | 算法/工具 | 用途 | 私钥存放 | 公钥随固件投放 |
+| :--- | :--- | :--- | :--- | :--- |
+| **apk 签名密钥** | EC P-256（openssl） | 签名各 feed 的 `packages.adb` 索引（apk 安装/升级时验签） | GitHub Secrets `APK_SIGNING_PRIVATE_KEY`（+ 维护者本机 `~/.quartz-signing/`，0600） | `/etc/apk/keys/quartz.pem`（`quartz-defaults` 预置）+ `/etc/apk/keys/public-key.pem`（base-files 自动，CI 构建即稳定密钥） |
+| **OTA 清单密钥** | Ed25519（usign） | 签名 OTA 版本清单（设备端 usign 验签） | GitHub Secrets `OTA_SIGNING_KEY` | `/etc/quartz-ota.pub`（`quartz-defaults` 预置） |
+
+> 为什么 OTA 用 usign：设备镜像**自带 usign**（基座包，实测在列），**不带 openssl CLI**——
+> 用 usign 可零新增依赖完成"清单签名→镜像哈希"信任链；apk 密钥是 EC/PEM 格式，
+> 设备端没有对应验签工具。两把密钥分工明确、互不替代。
+
+**当前密钥指纹（2026-10-14 生成，登记备查）**：
+
+- apk key id：`6947a869aad621cb2a8c0765c39ea104`
+- OTA fingerprint：`00b0cef78d463a09`
+
+### 1.3 密钥生命周期
+
+- **生成（一次性）**：`scripts/gen-signing-key.sh`（默认输出 `~/.quartz-signing/`，拒绝覆盖）。
+- **入仓**：公钥入 `QuartzWrt-Packages`（`meta/quartz-defaults/files/etc/apk/keys/quartz.pem`、
+  `files/etc/quartz-ota.pub`）；私钥**永不入 git**。
+- **入 Secrets**：`gh secret set APK_SIGNING_PRIVATE_KEY|APK_SIGNING_PUBLIC_KEY|OTA_SIGNING_KEY -R quartzwrt/QuartzWrt-Builder`
+  （gen 脚本末尾直接打印命令）。
+- **轮换（= 换代，非日常操作）**：已出厂固件只信任其镜像内预置的旧公钥——
+  轮换须"先让新公钥随一次固件升级落到设备，再切换签名密钥"，且旧 feed 需双密钥并存过渡；
+  纪律：**密钥丢失 = 无法发布可升级的 feed/OTA**（只能走整镜像重刷），私钥务必备份。
+
+---
+
+## 2. 构建注入与验证（本地与 CI 共用）
+
+```text
+scripts/inject-signing-key.sh <构建树> [--require]     # 注入 private/public-key.pem（+一致性校验）
+scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后强校验（8 项断言）
+```
+
+- 注入源：`QUARTZ_SIGNING_DIR`（本地）或 `APK_SIGNING_PRIVATE_KEY`（CI Secrets，内容或路径）；
+  同时校验"私钥推导公钥 == 给定公钥 == feed 内 quartz-defaults 预置的 `quartz.pem`"——
+  **密钥错配直接构建失败**（防"签出来的 feed 没人认"）。
+- `build-local.sh` 步骤 5c/5d：注入密钥 + 写构建标识 `files/etc/quartz-build-id`（随镜像投放，
+  OTA 版本比较的依据）；步骤 10c：签名一致性校验。
+- CI `build.yml`：job 级 env 承接 Secrets（`secrets` 不能用于 step `if`——WP-6 教训），
+  "Inject signing key"步骤注入；`publish=yes` 时**强制要求密钥**（`--require`），普通构建允许
+  缺省（开发态临时密钥，verify 步骤跳过并提示）。
+- **开发态语义（重要）**：不注入密钥时基座生成临时密钥，固件只信任自己——适合本地调试，
+  但**该构建的 feed 不可发布**（旧设备不认）。
+
+---
+
+## 3. 软件源发布（D10 阶段 1）
+
+### 3.1 仓库布局（与固件 distfeeds URL 逐字对应）
+
+固件 URL 由基座 `FeedSourcesAppendAPK` + `VERSION_SED_SCRIPT` 生成：
+`%U/packages/%A/<feed>/packages.adb`、`%U/targets/%S/packages/packages.adb`
+（`%U=CONFIG_VERSION_REPO`、`%A=ARCH_PACKAGES` 如 `x86_64`、`%S=BOARD/SUBTARGET` 如 `x86/64`）。
+因此发布目录就是 URL 根：
+
+```text
+<发布根>/
+├── packages/<arch>/{quartz,thirdparty}/     # 自有 feed（*.apk + packages.adb + index.json）
+├── targets/<board>/<subtarget>/packages/    # 目标包（kernel/kmods/base-files……）
+├── targets/<board>/<subtarget>/             # 镜像 + sha256sums + profiles.json（OTA 下载对象）
+├── ota/<board>/<subtarget>.json(+.sig)      # OTA 版本清单（usign 签名）
+└── PUBLISH.txt                              # 发布记录（build id / key id / 体积）
+```
+
+生成：`scripts/publish-feed.sh --base-dir <构建树> --dest <目录> [--feeds quartz,thirdparty|all]
+[--no-target] [--no-images] [--ota-key PATH]`——内置签名一致性校验（失败不发布）。
+
+### 3.2 托管与同步
+
+- 推荐 **Cloudflare R2**（D10 拍板；S3 兼容、零出口费、10GB 免费），阶段 1 自有 feed
+  仅 ~6MB/构建 + 目标包/镜像按需（本次实测全量发布目录 178MB 含 4 个镜像；不含镜像 ~40MB）；
+  托管选择与"运行时资源不镜像"（D8）不冲突——本通道只承载 apk 软件源与 OTA 文件。
+- CI：`build.yml` 的 `publish=yes` → `scripts/publish-feed.sh` → `aws s3 sync`（Secrets：
+  `PUBLISH_S3_ENDPOINT` / `PUBLISH_S3_BUCKET` / `PUBLISH_S3_ACCESS_KEY_ID` / `PUBLISH_S3_SECRET_ACCESS_KEY`；
+  未配置时只留 workflow artifact 并在日志中提示）。
+- 本地/演练：`publish-feed.sh` 产物目录用任意静态服务器托管即可（演练用 `python3 -m http.server`）。
+
+---
+
+## 4. 公钥预置与设备侧接入（`quartz-defaults`）
+
+- **公钥**：`/etc/apk/keys/quartz.pem`（apk 信任根）、`/etc/quartz-ota.pub`（OTA 验签）；
+  另有 base-files 自动投放的 `public-key.pem`（CI 构建下与 `quartz.pem` 同内容，重复无害）。
+- **feed 行（阶段 1 开关）**：kconfig `QUARTZ_FEED_BASE_URL`（string，默认空）——
+  - 空：**不写任何 feed 行**（安全默认；未发布前不引入死链，坑位 #41 不复现）；
+  - 非空：安装 `/etc/apk/repositories.d/quartz-feed.list`，三行 =
+    `quartz` / `thirdparty` / 目标包（后者让 kmod 等按本镜像内核版本可装——
+    官方快照旧于锁定基座，kmod 无法从官方装，见 D10 实测）。
+- **OTA 件**：`/usr/sbin/quartz-ota-update`（原型，见 §7）。
+
+---
+
+## 5. #41 翻转条件（distfeeds 死链的闭环口径）
+
+坑位 #41 现状：`CONFIG_FEED_{quartz,thirdparty,video}=m` → distfeeds 里三行被注释，
+`apk upgrade` 不再因"stale/unavailable repositories"整体拒绝；但 quartz/thirdparty
+**尚未接入可用源**（App 软件包管理面只能看到官方源）。
+
+| 阶段 | 动作 | 效果 | 前置条件（翻转条件） |
+| :--- | :--- | :--- | :--- |
+| **阶段 1（本次落地）** | `seed.config` 设 `CONFIG_QUARTZ_FEED_BASE_URL="https://<托管根>"` → 重建 | 固件经 `quartz-feed.list` 接入自有 feed（quartz/thirdparty/目标包），索引签名由预置公钥校验；`CONFIG_FEED_*=m` **保持不变**（官方 distfeeds 里那三行仍是注释，不复活死链） | ① feed 已发布且 `apk update` 在干净设备上验签通过；② 发布件由稳定密钥签名（`verify-signing.sh` 全绿）；③ URL 可匿名 HTTPS 访问（或明示 HTTP 风险） |
+| **阶段 2（后续，含全量镜像）** | 全量发布（`--feeds all` + 官方 base/luci/packages/... 镜像）→ `CONFIG_VERSION_REPO="https://<托管根>"` + `CONFIG_FEED_{quartz,thirdparty}=y`（video 视上游情况） | 固件完全自包含：distfeeds 全指向自有镜像，可复现升级；ASU/OTA 前提 | ① 阶段 1 稳定运行；② 全量镜像同步管道（约 3.45GB/x86_64 量级）与缓存策略就绪；③ 官方 feed 的镜像时效性监控（避免比锁定基座旧/新错配） |
+
+> 注意：**不要**只把 `CONFIG_FEED_*=y` 翻回来——那会让 distfeeds 重新指向官方
+> `%U/packages/%A/quartz/packages.adb`（404）。翻转必须与 URL 来源（阶段 1 的
+> `QUARTZ_FEED_BASE_URL` 或阶段 2 的 `CONFIG_VERSION_REPO`）成对发生。
+
+---
+
+## 6. OTA 通道（原型，已端到端演练）
+
+### 6.1 清单与信任链
+
+```json
+{ "schema": "quartzwrt-ota/1", "dist": "QuartzWrt", "base": "ImmortalWrt 25.12",
+  "build_id": "<UTC 时间戳>-<Builder 短提交>", "revision": "r0+38247-ce35a9e4ef",
+  "target": "x86/64", "generated": "...",
+  "images": [ { "name": "...", "path": "targets/x86/64/...", "sha256": "...", "size": N } ] }
+```
+
+- 生成：`publish-feed.sh`（构建标识取自镜像内同源的 `files/etc/quartz-build-id`）；
+- 签名：`usign -S`（OTA 私钥）→ `<...>.json.sig`；
+- 设备侧 `quartz-ota-update`：清单验签（`/etc/quartz-ota.pub`）→ 版本比对（build id）
+  → 下载镜像 → **sha256 校验** → `sysupgrade -T` 预检 → `sysupgrade [-n]`；
+- 退出码：`0` 已最新 / `10` 有新版本 / `1` 错误（脚本接口，供 App/WP-5 动作封装）。
+
+### 6.2 生产化待办（原型边界）
+
+① 版本比较升级为语义化/日期序（当前为 build id 相等性 + `--force` 重装）；
+② 断点续传/带宽控制；③ App 集成（WP-5 动作白名单加 `system.ota_check/apply`，危险动作确认层）；
+④ 分设备通道（x86/aarch64 各自的 target 清单已按 `ota/<board>/<subtarget>.json` 分目录）；
+⑤ 回滚策略（保留上一版本镜像 URL）。
+
+---
+
+## 7. ASU（Attended Sysupgrade）评估结论
+
+**结论：v1 不采用上游 ASU，走"自有 feed + 签名清单 OTA"通道；ASU 作为 v2 候选，且必须是自建服务。**
+
+依据（实测/机制）：
+
+1. **上游 ASU 服务只从官方 feed 构建**（`asu` 服务端用官方 imagebuilder + 官方 packages），
+   不含 quartz/thirdparty feed、不含本项目的设备补丁与分区参数（FNet3399 等）——
+   对我们等于"另一个发行版"，产出无法带 Quartz 定制；自建 ASU 服务 = 一套常驻服务 +
+   imagebuilder 农场（每个 target/架构都要镜像），运维成本与收益不匹配当前阶段。
+2. **我们的构建本来就在 GitHub Actions**：自定义 OTA（本文件 §6）复用既有产物与托管，
+   零新增常驻设施；"保留用户已装包列表"（ASU 的核心价值）可以在 v2 用
+   "记录 world → 服务端重放安装" 的轻量实现（清单里带 `world` 快照即可）。
+3. **签名/信任模型不同**：ASU 依赖官方签名体系；我们已建立自有稳定密钥 + 预置公钥，
+   OTA 通道的信任链（清单签名 + 镜像 sha256）已闭环并演练通过。
+4. 若将来要接 ASU：建议形态 = **Cloudflare Worker 暴露 ASU API → repository_dispatch 触发
+   本仓库 build.yml（带包列表参数）→ 产物回传 R2 → Worker 返回下载 URL**；
+   与 D10 阶段 2 的自有全量镜像共用基建。**该形态成立的前提是阶段 2 完成。**
+
+---
+
+## 8. 第三方自动 Bump CI（`.github/workflows/bump.yml`）
+
+- **触发**：每周一 03:00 UTC + 手动；**只做轻量检查，不触发构建**（遵守"CI 仅手动"策略）。
+- **动作**：对比三处锁定与上游（`config/base.env` 的基座 commit；`feeds.conf.extra` 的
+  quartz/thirdparty `^SHA`）→ 有变化则改锁定、推 `bump/locks-<日期>` 分支、开 PR
+  （正文含 TDD §4.3 验证检查单：单包编译 / 本地全量 / 设备重验 / 手动 CI 权威验收 /
+  FORKS.md 发布前检查单）。
+- **上游发版观察**（informational）：从 `QuartzWrt-ThirdParty/docs/FORKS.md` 提取受控 Fork
+  与上游仓库，逐个报"最新 tag / 默认分支头"到 job summary（Builder 单独检出时用内置兜底清单），
+  供维护者对照 FORKS.md 的锁定日期判断是否需要同步。
+- **合并纪律**：bump PR 合并不等于验收——按 PR 检查单跑完本地全量（含 `verify-signing.sh`）
+  或手动 CI 后才合并；设备/基座 bump 必须重验设备补丁（TDD §4.6）。
+
+---
+
+## 9. 验收记录（2026-10-14）
+
+### 9.1 构建与签名
+
+- 稳定密钥注入 + 新 `quartz-defaults`（r2）→ 全量构建 **exit 0**；`verify-signing.sh`
+  **8/8 PASS**（quartz/thirdparty 索引签名 key id 匹配 `6947a869aad621cb…`、base-files 公钥载荷、
+  quartz.pem / quartz-ota.pub / quartz-ota-update / quartz-feed.list）。
+- 镜像级核验（debugfs 直读 rootfs）：`/etc/quartz-build-id`、`/etc/apk/repositories.d/quartz-feed.list`、
+  `/etc/apk/keys/quartz.pem` 均在位。
+
+### 9.2 端到端演练（`scripts/ota-drill.sh`，独立 QEMU 实例；**PASS=10 FAIL=0**）
+
+**A. 包升级链路**（旧固件上，模拟"公钥/feed 行随固件投放"）：
+
+| 步骤 | 结果 |
+| :--- | :--- |
+| A1–A2 投放 `quartz.pem` + `quartz-feed.list` | ✅ |
+| A3 `apk update`（**设备端 apk 真实验签**） | ✅ `OK: 10521 distinct packages available`（含自有 feed） |
+| A4 自有源索引可用、升级可见 | ✅ `luci-theme-quartz … [upgradable from: …~f9f7488]` |
+| A5 **反例：异钥签名的仓库** | ✅ `UNTRUSTED signature` + `apk add luci-app-mosdns` → `no such package`（`ROGUE_REJECTED`） |
+| A6–A7 `apk upgrade`（真升级） | ✅ 6 个包升级，含 `quartz-defaults 0.1.0-r1 → 0.1.0-r2` |
+| A8 升级后版本 | ✅ dashboard `~4276a56` / theme `~19dfe25`（版本戳前移） |
+
+**B. 固件 OTA 链路**：
+
+| 步骤 | 结果 |
+| :--- | :--- |
+| B1 投放 `quartz-ota.pub` + `quartz-ota-update` | ✅ |
+| B2 `--check` | ✅ 清单验签有效、`本机 unknown → 远端 20261014T2145Z-wp9drill`、退出码 **10** |
+| B3 `--apply` | ✅ 下载 → **sha256 校验通过** → `sysupgrade -T` 预检 → 开始升级 → 重启 |
+| B4 重启恢复 | ✅ 第 11 次探测（约 1 分钟）SSH 恢复 |
+| B5 新 build id | ✅ `20261014T2145Z-wp9drill`（与清单一致） |
+| B6 新固件预置件 | ✅ 公钥 / feed 行 / OTA 脚本 all-present |
+| B7 升级后包版本 | ✅ 新镜像内版本（dashboard `~4276a56`、theme `~19dfe25`、quartz-defaults r2） |
+| B8 自有 feed + OTA 复检 | ✅ `apk update` 通过、`--check` 退出码 0（已最新） |
+
+证据：`dev/ota-drill/`（演练日志 + summary.json + PUBLISH.txt；VM 侧为独立实例，不动共享预览台）。
+
+**演练中发现的边界（如实登记）**：① x86 generic 镜像 `fwtool` **元数据缺失**
+（`upgrade: Image metadata not present`）——sysupgrade 的"设备匹配"检查因此跳过（非必需），
+镜像选择的正确性由"清单按 target 分目录 + 签名"承担；② 旧固件（本次演练的基线）无
+`/etc/quartz-build-id`，脚本显示 `unknown`——正式出厂固件都带该文件；
+③ 演练的 `apk upgrade` 顺带验证了"自有 feed 里目标包版本与镜像一致"（内核/kmod 无跨版本漂移）。
+
+---
+
+## 10. 开放事项
+
+- 托管凭据（R2/S3 Secrets）与阶段 1 URL 的实际填写（`seed.config`）由用户/维护者执行
+  （§5 翻转条件已给全）；填好后 `#41` 的"App 软件面可用"才算真正闭环。
+- 发布后需在干净设备上复验一次"`apk update` 验签通过 + `apk upgrade` 升级"（演练已用
+  本地 HTTP 源证明机制，公网 HTTPS 源属同类）。
+- 阶段 2 全量镜像的同步管道（增量/缓存/时效监控）尚未实现。
+- `quartz-ota-update` 的 App 集成（WP-5 动作）与"保留已装包"（world 重放）为 v2 事项。
