@@ -109,13 +109,18 @@ else
     cmp -s "$tmp/etc/quartz-ota.pub" "$OTA_PUB" && ok "quartz-ota.pub == 仓库 OTA 公钥" \
       || bad "quartz-ota.pub 与仓库 OTA 公钥不一致"
   fi
-  # QUARTZ_FEED_BASE_URL 配置 → 必须带 quartz-feed.list（D10 阶段 1 接入）
+  # QUARTZ_FEED_BASE_URL 配置 → 必须带 quartz-feed.list（D10 阶段 1 接入）+ OTA 源文件
   url="$(sed -n 's/^CONFIG_QUARTZ_FEED_BASE_URL="\?\([^"]*\)"\?$/\1/p' "$BASE_DIR/.config" 2>/dev/null | head -1)"
   if [ -n "$url" ]; then
     if [ -f "$tmp/etc/apk/repositories.d/quartz-feed.list" ] && grep -qF "$url" "$tmp/etc/apk/repositories.d/quartz-feed.list"; then
       ok "quartz-feed.list 在列且指向 $url"
     else
       bad "已设 QUARTZ_FEED_BASE_URL=$url 但 quartz-feed.list 缺失/不符"
+    fi
+    if [ -f "$tmp/etc/quartz-ota.url" ] && [ "$(cat "$tmp/etc/quartz-ota.url")" = "$url" ]; then
+      ok "quartz-ota.url 在列（OTA 源同根，零配置可用）"
+    else
+      bad "已设 QUARTZ_FEED_BASE_URL 但 quartz-ota.url 缺失/不符"
     fi
   else
     [ -f "$tmp/etc/apk/repositories.d/quartz-feed.list" ] \

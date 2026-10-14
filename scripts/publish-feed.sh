@@ -25,6 +25,8 @@
 #     --ota-key PATH           usign 私钥（默认 $OTA_SIGNING_KEY 或 $QUARTZ_SIGNING_DIR/ota.key）
 #     --build-id ID            覆盖 build id（默认读 <base-dir>/files/etc/quartz-build-id）
 #     --skip-verify            跳过签名 key id 校验（不推荐）
+#     --rsync DEST             发布后 rsync 同步到静态托管（如 NAS：user@nas:/volume1/web/quartzwrt）
+#                              —— `-av --delete`；DEST 必须是**专用目录**（--delete 会清理其内容）
 #
 # 退出码: 0 成功；1 失败（含签名缺失/校验失败——宁可不发布）
 
@@ -40,8 +42,13 @@ FEEDS="quartz,thirdparty"
 WITH_TARGET=1
 WITH_IMAGES=1
 OTA_KEY="${OTA_SIGNING_KEY:-${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/ota.key}}"
+# 缺省兜底：gen-signing-key.sh 的默认目录（~/.quartz-signing/ota.key）——存在即用
+if [ -z "$OTA_KEY" ] && [ -f "$HOME/.quartz-signing/ota.key" ]; then
+  OTA_KEY="$HOME/.quartz-signing/ota.key"
+fi
 BUILD_ID=""
 SKIP_VERIFY=0
+RSYNC_DEST=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,6 +63,7 @@ while [ $# -gt 0 ]; do
     --ota-key) OTA_KEY="$2"; shift 2 ;;
     --build-id) BUILD_ID="$2"; shift 2 ;;
     --skip-verify) SKIP_VERIFY=1; shift ;;
+    --rsync) RSYNC_DEST="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（用法见 --help）" >&2; exit 1 ;;
   esac
@@ -242,4 +250,18 @@ step "发布记录"
 } > "$DEST/PUBLISH.txt"
 sed -n '1,20p' "$DEST/PUBLISH.txt"
 
-step "完成 ✔ 发布目录：$DEST（可整体同步到托管：R2/S3/静态主机，根即 URL 根）"
+if [ -n "$RSYNC_DEST" ]; then
+  step "同步到静态托管：$RSYNC_DEST（rsync -av --delete）"
+  command -v rsync >/dev/null || { echo "错误：缺少 rsync" >&2; exit 1; }
+  case "$RSYNC_DEST" in
+    *:*) : ;;  # 远程（ssh）形态
+    *) [ -d "$RSYNC_DEST" ] || { echo "错误：本地目标目录不存在：$RSYNC_DEST" >&2; exit 1; } ;;
+  esac
+  rsync -av --delete "$DEST"/ "$RSYNC_DEST"/
+  echo "  OK：已同步（远端内容与本次发布一致，含同名旧版本清理）"
+fi
+
+step "完成 ✔ 发布目录：$DEST（根即 URL 根）"
+echo "  固件侧接入（#41 阶段 1 翻转）：config/seed.config 设"
+echo "    CONFIG_QUARTZ_FEED_BASE_URL=\"<你的托管根 URL>\""
+echo "  发布后可用 scripts/check-feed-live.sh <托管根 URL> 复核（可达性/签名/翻转前置）"

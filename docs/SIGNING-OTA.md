@@ -96,13 +96,39 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
 
 ### 3.2 托管与同步
 
-- 推荐 **Cloudflare R2**（D10 拍板；S3 兼容、零出口费、10GB 免费），阶段 1 自有 feed
-  仅 ~6MB/构建 + 目标包/镜像按需（本次实测全量发布目录 178MB 含 4 个镜像；不含镜像 ~40MB）；
-  托管选择与"运行时资源不镜像"（D8）不冲突——本通道只承载 apk 软件源与 OTA 文件。
-- CI：`build.yml` 的 `publish=yes` → `scripts/publish-feed.sh` → `aws s3 sync`（Secrets：
-  `PUBLISH_S3_ENDPOINT` / `PUBLISH_S3_BUCKET` / `PUBLISH_S3_ACCESS_KEY_ID` / `PUBLISH_S3_SECRET_ACCESS_KEY`；
-  未配置时只留 workflow artifact 并在日志中提示）。
-- 本地/演练：`publish-feed.sh` 产物目录用任意静态服务器托管即可（演练用 `python3 -m http.server`）。
+**托管形态（2026-10-14 用户决定：自建 NAS 为主）**：发布目录是**纯静态目录树**（根即 URL 根），
+任何静态 Web 服务器都能承载——NAS（群晖/威联通/自建 nginx/caddy）是首选；Cloudflare R2
+（S3 兼容）保留为"需要公网/跨地域"时的备选（阶段 2 全量镜像也用它更合适）。
+
+**NAS 托管要点（实测/约定）**：
+
+- **URL 必须是设备可达的地址**：LAN 内用 NAS 的 LAN IP 或内网域名（如
+  `http://192.168.1.10/quartzwrt`），不要用只在维护机可解析的名字；带路径前缀没问题
+  （固件拼接约定 = `<根>/packages/...`），**根 URL 不要带尾斜杠**。
+- **HTTP 或 HTTPS 都可**：包完整性由**索引签名**保证（HTTP 只暴露"有哪些包"的元数据）；
+  公网暴露建议 HTTPS（NAS 自签证书在设备端无 CA 信任，需用有效证书或用 HTTP + 仅限内网）。
+- **同步**：`publish-feed.sh --rsync <目标>`（`-av --delete`，把旧版本清理同步到远端）。
+  目标可以是 SSH 形态（`user@nas:/volume1/web/quartzwrt`）或已挂载的本地路径
+  （SMB/NFS 挂载点）。**目标必须是专用目录**——`--delete` 会清理该目录内不属于本次发布的内容。
+- **Web 服务器要求**：原样提供文件（勿改写/勿转码）、保持文件名大小写、允许 `.adb` 后缀、
+  不需要目录列表；gzip 等透明压缩无碍（apk 走 HTTP 正常解码）。
+- **CI 限制（重要）**：GitHub Actions runner 在公网，**够不到家里的 NAS**——NAS 托管时
+  `publish` 流程走"本地/局域网机器"：`publish-feed.sh`（+`--rsync`），或在 CI 里
+  `publish=yes` 生成 feed artifact 后，在局域网机器上 `gh run download` 再 `--rsync`。
+  若 NAS 经 Tailscale/隧道可达，也可继续用 `PUBLISH_S3_*`（NAS 上跑 MinIO）或 rclone。
+- **发布后自检**：`scripts/check-feed-live.sh <URL>`（可达性 / 索引签名 key id /
+  OTA 清单验签 / 抽查包可取）——**这就是 #41 阶段 1 的翻转前置检查**。
+
+```bash
+# 一次性：本地构建（注入稳定密钥）→ 发布到 NAS（rsync 直推）
+QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
+scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out \
+  --rsync user@nas:/volume1/web/quartzwrt
+scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（全绿再翻转）
+```
+
+**Cloudflare R2 / S3 兼容通道**：CI `publish=yes` → `aws s3 sync`（Secrets：`PUBLISH_S3_ENDPOINT`/
+`PUBLISH_S3_BUCKET`/`PUBLISH_S3_ACCESS_KEY_ID`/`PUBLISH_S3_SECRET_ACCESS_KEY`；未配置时只留 artifact）。
 
 ---
 
@@ -114,7 +140,9 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
   - 空：**不写任何 feed 行**（安全默认；未发布前不引入死链，坑位 #41 不复现）；
   - 非空：安装 `/etc/apk/repositories.d/quartz-feed.list`，三行 =
     `quartz` / `thirdparty` / 目标包（后者让 kmod 等按本镜像内核版本可装——
-    官方快照旧于锁定基座，kmod 无法从官方装，见 D10 实测）。
+    官方快照旧于锁定基座，kmod 无法从官方装，见 D10 实测）；
+    同时写 `/etc/quartz-ota.url`（**OTA 源与 feed 同根，`quartz-ota-update` 零配置可用**；
+    `uci quartz.ota.url` 可覆盖）。
 - **OTA 件**：`/usr/sbin/quartz-ota-update`（原型，见 §7）。
 
 ---

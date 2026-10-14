@@ -19,7 +19,8 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/test-in-vm.sh` | QEMU/KVM 真启动测试：完整引导链（BIOS→GRUB→内核）、procd 首次启动、网络栈；交互串口 / `--detach` / `--stop`（2026-10-12 实测通过；x86 目标） |
 | `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
 | `scripts/gen-signing-key.sh` / `inject-signing-key.sh` / `verify-signing.sh` | WP-9 签名密钥：生成（一次性）/ 构建树注入（+密钥一致性校验）/ 构建后签名强校验（docs/SIGNING-OTA.md） |
-| `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签） |
+| `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签）；`--rsync` 直推 NAS 等静态托管 |
+| `scripts/check-feed-live.sh` | WP-9 发布后自检：托管根可达性 / 索引签名 key id / OTA 清单验签 / 抽查包可取（#41 阶段 1 翻转前置） |
 | `scripts/ota-drill.sh` | WP-9 端到端演练：独立 QEMU 实例上跑「包升级链路 + 固件 OTA 链路」（含异钥反例） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 切换设备目标；`publish` 发布 feed/OTA） |
 | `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/双 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
@@ -62,10 +63,14 @@ scripts/gen-signing-key.sh
 # ③ 本地构建：注入密钥（QUARTZ_SIGNING_DIR）+ 构建标识 + 构建后签名校验（步骤 5c/10c 自动）
 QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
 
-# ④ 发布 feed + OTA 清单到目录（再整体同步到托管：R2/S3/静态主机）
+# ④ 发布 feed + OTA 清单到目录（再整体同步到托管：NAS/R2/静态主机）
 scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out
-
-# ⑤ 端到端演练（独立 QEMU：包升级链路 + 固件 OTA 链路，含异钥反例）
+#    直接推到 NAS（静态托管，-av --delete；目标须为专用目录）：
+#    scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out \
+#      --rsync user@nas:/volume1/web/quartzwrt
+# ⑤ 发布后自检（#41 阶段 1 翻转前置：可达性/索引签名/OTA 验签/抽查包）
+scripts/check-feed-live.sh http://<nas-ip>/quartzwrt
+# ⑥ 端到端演练（独立 QEMU：包升级链路 + 固件 OTA 链路，含异钥反例）
 scripts/ota-drill.sh            # 证据落 ../vm/ota-drill/
 ```
 
