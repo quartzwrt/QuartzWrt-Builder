@@ -8,4 +8,4 @@
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
 src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^fa9783240d5014e0cad2632447486a196897fac7
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^75a8e4f8f531d30ec30cab4760cf1e3163b11f7f
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^be0e5268444b9ccdf6babf010a22825826ad2ae7

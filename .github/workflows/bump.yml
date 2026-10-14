@@ -79,18 +79,21 @@ jobs:
           git commit -m "WP-1/WP-7: 锁定 bump（自动检查）——$(date -u +%F)"
           git push -u origin "$branch" --force
 
-          cat > /tmp/pr-body.md <<EOF
+          # 注意：heredoc 用**引号定界符**——body 含 markdown 反引号，未加引号会被
+          # shell 当命令替换执行（首次运行实测踩中：`thirdparty: command not found`）。
+          # `${{ }}` 由 Actions 引擎在交给 shell 前替换，引号定界符不影响它。
+          cat > /tmp/pr-body.md <<'EOF'
           定时锁定检查发现上游更新：
 
           ${{ steps.check.outputs.body }}
           **合并前验证检查单（TDD §4.3）**：
-          - [ ] 单包编译（涉及包：\`make package/feeds/<feed>/<pkg>/{clean,compile}\`）
-          - [ ] 本地全量 \`scripts/build-local.sh\` 通过（含同名包检查 / manifest 断言 / 签名校验）
-          - [ ] 设备构建（若基座 bump）：\`--device erya_fnet-3399\` 补丁重验 + 镜像核验
-          - [ ] 需要时手动 CI 权威验收：\`gh workflow run build.yml\`
-          - [ ] thirdparty 涉及镜像/fork：按 \`QuartzWrt-ThirdParty/docs/FORKS.md\` 发布前检查单同步并复验
+          - [ ] 单包编译（涉及包：`make package/feeds/<feed>/<pkg>/{clean,compile}`）
+          - [ ] 本地全量 `scripts/build-local.sh` 通过（含同名包检查 / manifest 断言 / 签名校验）
+          - [ ] 设备构建（若基座 bump）：`--device erya_fnet-3399` 补丁重验 + 镜像核验
+          - [ ] 需要时手动 CI 权威验收：`gh workflow run build.yml`
+          - [ ] thirdparty 涉及镜像/fork：按 `QuartzWrt-ThirdParty/docs/FORKS.md` 发布前检查单同步并复验
 
-          由 \`.github/workflows/bump.yml\` 自动生成（仅改锁定，不做任何构建）。
+          由 `.github/workflows/bump.yml` 自动生成（仅改锁定，不做任何构建）。
           EOF
 
           gh pr create --title "锁定 bump：$(date -u +%F) 上游更新" \
