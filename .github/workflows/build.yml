@@ -202,15 +202,19 @@ jobs:
       - name: Resolve target & profile (目标解析 + 设备校验)
         id: tgt
         working-directory: immortalwrt
+        env:
+          # Builder 仓库根（设备适配层 devices/ 的定位基准；CI 下 = 检出根）
+          BUILDER_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
+          BUILDER_ROOT="${BUILDER_ROOT:-$(cd .. && pwd)}"
           TARGET="${{ inputs.target }}"
           PROFILE="${{ inputs.profile }}"
           board="${TARGET%%/*}"; sub="${TARGET#*/}"
           ARCH="$(perl scripts/dump-target-info.pl targets | awk -v t="$TARGET" '$1==t{print $2}')"
           [ -n "$ARCH" ] || { echo "FAIL: 基座无此目标：$TARGET"; exit 1; }
           # 模式：default（x86/64 默认种子）/ device（我们的设备适配层）/ multi（该目标全部设备）/ profile（单个设备）
-          if [ -n "$PROFILE" ] && [ -d "../devices/$PROFILE" ]; then
+          if [ -n "$PROFILE" ] && [ -d "$BUILDER_ROOT/devices/$PROFILE" ]; then
             kind=device; dev="$PROFILE"
           elif [ -z "$PROFILE" ] && [ "$TARGET" = "x86/64" ]; then
             kind=default; dev=""
