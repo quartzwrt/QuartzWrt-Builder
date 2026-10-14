@@ -22,7 +22,7 @@
 #      删除后 docker restart 与 docker cp 都会失败（"mkdir qz-start.sh: not a directory"）。
 #
 # 用法: scripts/test-in-docker.sh [rootfs.tar.gz 路径]
-#   环境变量: PORT=8080（宿主端口）、PASSWORD=quartz（测试用 root 密码）
+#   环境变量: PORT=8080（宿主端口，只发布到 127.0.0.1）、PASSWORD=quartz（测试用 root 密码）
 set -euo pipefail
 
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -92,7 +92,7 @@ dk docker import "$TARBALL" "$IMAGE" >/dev/null
 
 echo "==> 启动容器: $CONTAINER（宿主端口 $PORT，root 密码 $PASSWORD）"
 dk docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-dk docker run -d --name "$CONTAINER" -p "$PORT:80" -e QZ_PASSWORD="$PASSWORD" \
+dk docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:80" -e QZ_PASSWORD="$PASSWORD" \
 	-v "$START_SCRIPT:/qz-start.sh:ro" "$IMAGE" sh /qz-start.sh >/dev/null
 
 echo "==> 等待服务就绪"

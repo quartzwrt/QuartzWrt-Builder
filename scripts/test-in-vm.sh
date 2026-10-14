@@ -18,9 +18,13 @@
 #                                        镜像重建后拒绝复用——陈旧覆盖层会致启动崩溃，
 #                                        QUARTZ_ALLOW_STALE_OVERLAY=1 可强制）
 # 环境变量: PORT=8080（LuCI 宿主端口）、SSH_PORT=2222、APP_PORT=8443（App API
-#           443 宿主端口，WP-5）、MEM=1024、SMP=4、VM_PASS=quartz（ensure_wan 首试密码）
+#           443 宿主端口，WP-5）、MEM=1024、SMP=4、VM_PASS=quartz（ensure_wan 首试密码）、
+#           BIND_ADDR=127.0.0.1（hostfwd 监听地址——**默认只绑宿主 loopback**：
+#           配合公开记录的 VM_PASS，暴露到 0.0.0.0 等于把测试机交给整个网段；
+#           确要从别的机器访问才显式设 BIND_ADDR=0.0.0.0）
 #
-# 网络：两张网卡——eth0=LAN 段（slirp 192.168.1.0/24，hostfwd 供宿主访问 LuCI/SSH/API）；
+# 网络：两张网卡——eth0=LAN 段（slirp 192.168.1.0/24，hostfwd 供宿主访问 LuCI/SSH/API，
+#       仅绑 BIND_ADDR）；
 #       eth1=WAN 段（slirp 默认网 10.0.2.0/24，DHCP 10.0.2.15 / 网关 10.0.2.2 / DNS
 #       10.0.2.3），供 VM 自身出网（OpenClash 等网络功能测试）。基座 x86 板级不会自动
 #       生成 WAN，detach 模式就绪后由 ensure_wan 补配一次（幂等）。
@@ -39,6 +43,7 @@ VM_DIR="$BUILDER_DIR/../vm"
 PORT="${PORT:-8080}"
 SSH_PORT="${SSH_PORT:-2222}"
 APP_PORT="${APP_PORT:-8443}"
+BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
 MEM="${MEM:-1024}"
 SMP="${SMP:-4}"
 OVERLAY="$VM_DIR/overlay.qcow2"
@@ -112,8 +117,9 @@ else
 fi
 
 # ---- 网络：slirp 用户网络对齐固件 LAN 网段（默认 lan=192.168.1.1），
-#      显式指定 hostfwd 目标地址，确保转发不依赖 DHCP 租约表 ----
-NETDEV="user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp::${PORT}-192.168.1.1:80,hostfwd=tcp::${SSH_PORT}-192.168.1.1:22,hostfwd=tcp::${APP_PORT}-192.168.1.1:443"
+#      显式指定 hostfwd 目标地址，确保转发不依赖 DHCP 租约表；监听地址默认 loopback
+#      （BIND_ADDR）——不要把测试 VM 暴露到局域网（VM_PASS 是公开文档里的默认值） ----
+NETDEV="user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp:${BIND_ADDR}:${PORT}-192.168.1.1:80,hostfwd=tcp:${BIND_ADDR}:${SSH_PORT}-192.168.1.1:22,hostfwd=tcp:${BIND_ADDR}:${APP_PORT}-192.168.1.1:443"
 # WAN 段：第二张网卡走 slirp 默认网络（10.0.2.0/24）——DHCP 发 10.0.2.15、网关
 # 10.0.2.2、DNS 10.0.2.3；VM 侧以 wan(eth1, dhcp) 接入（见 ensure_wan），出网即通
 WANNETDEV="user,id=n1"

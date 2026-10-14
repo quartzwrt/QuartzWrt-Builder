@@ -18,6 +18,9 @@
 #                        [--keep] [--feed-dir DIR] [--ota-key PATH]
 #
 # 证据：$DRILL_DIR/drill-<时间戳>.log + summary.json（默认 <Builder>/../vm/ota-drill/）
+#
+# 网络：演练 VM 的 hostfwd 与演练 HTTP 服务**只绑宿主 loopback**——guest 经 slirp
+# 主机别名（192.168.1.2）访问宿主服务不受影响（实测：loopback 绑定同样可达）。
 
 set -euo pipefail
 
@@ -141,7 +144,7 @@ step "启动 HTTP 服务（: $HTTP_PORT）"
 if [ -f "$DRILL_DIR/http.pid" ] && kill -0 "$(cat "$DRILL_DIR/http.pid")" 2>/dev/null; then
   kill "$(cat "$DRILL_DIR/http.pid")" 2>/dev/null || true; sleep 1
 fi
-( cd "$FEED_DIR" && nohup python3 -m http.server "$HTTP_PORT" --bind 0.0.0.0 >"$DRILL_DIR/http.log" 2>&1 &
+( cd "$FEED_DIR" && nohup python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 >"$DRILL_DIR/http.log" 2>&1 &
   echo $! > "$DRILL_DIR/http.pid" )
 sleep 1
 curl -fsS "http://127.0.0.1:$HTTP_PORT/ota/x86/64.json" >/dev/null && echo "  OK：清单可访问"
@@ -152,7 +155,7 @@ rm -f "$DRILL_DIR/overlay.qcow2" "$DRILL_DIR/serial.log"
 qemu-img create -q -f qcow2 -b "$OLD_IMAGE" -F raw "$DRILL_DIR/overlay.qcow2"
 qemu-system-x86_64 -cpu max -accel tcg -smp 4 -m 1024 \
   -drive file="$DRILL_DIR/overlay.qcow2",if=virtio,format=qcow2 \
-  -netdev user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp::"$LUCI_PORT"-192.168.1.1:80,hostfwd=tcp::"$SSH_PORT"-192.168.1.1:22,hostfwd=tcp::"$APP_PORT"-192.168.1.1:443 \
+  -netdev user,id=n0,net=192.168.1.0/24,host=192.168.1.2,hostfwd=tcp:127.0.0.1:"$LUCI_PORT"-192.168.1.1:80,hostfwd=tcp:127.0.0.1:"$SSH_PORT"-192.168.1.1:22,hostfwd=tcp:127.0.0.1:"$APP_PORT"-192.168.1.1:443 \
   -device virtio-net-pci,netdev=n0 -netdev user,id=n1 -device virtio-net-pci,netdev=n1 \
   -name quartzwrt-ota-drill -display none -serial "file:$DRILL_DIR/serial.log" \
   -daemonize -pidfile "$DRILL_DIR/qemu.pid"

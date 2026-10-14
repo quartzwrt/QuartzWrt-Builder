@@ -100,9 +100,10 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
 任何静态 Web 服务器都能承载——NAS（群晖/威联通/自建 nginx/caddy）是首选；Cloudflare R2
 （S3 兼容）保留为"需要公网/跨地域"时的备选（阶段 2 全量镜像也用它更合适）。
 
-**当前线上入口（2026-10-15）**：`https://sources.quartzwrt.org/quartz-feed`（Cloudflare 隧道 +
-Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；内网直连 `http://10.0.0.110:880/quartz-feed`
-同内容，备用）。站点根 `/` 展示**软件源页面**（见 §12）。
+**当前线上入口（2026-10-15）**：`https://sources.quartzwrt.org/quartz-feed`（隧道 +
+Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；NAS 内网直连 `<NAS 内网地址>/quartz-feed`
+同内容，备用——具体地址、站点根路径属维护者私有记录，**不入库/不写文档**）。
+站点根 `/` 展示**软件源页面**（见 §12）。
 
 **NAS 托管要点（实测/约定）**：
 
@@ -118,7 +119,7 @@ Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；内网直连 
   - **远端要密码时**（NAS 未放 SSH key、甚至没有 home 目录）：`SSH_PASS='<密码>' scripts/publish-feed.sh ... --rsync user@host:/path`
     ——经 `scripts/ssh-pass.py`（pty 助手，自动应答主机密钥确认与密码提示；密码只走环境变量、不落盘）。
   - **手动上传**（不想给自动化凭据时）：`publish-feed.sh` 只生成目录，把该目录（或打成的 zip）
-    经宝塔面板/共享目录拷到站点目录即可；注意保持目录结构原样、解压后顶层目录名 = URL 路径段。
+    经 NAS 的文件管理器/共享目录拷到站点目录即可；注意保持目录结构原样、解压后顶层目录名 = URL 路径段。
 - **Web 服务器要求**：原样提供文件（勿改写/勿转码）、保持文件名大小写、允许 `.adb` 后缀、
   不需要目录列表；gzip 等透明压缩无碍（apk 走 HTTP 正常解码）。
 - **CI 限制（重要）**：GitHub Actions runner 在公网，**够不到家里的 NAS**——NAS 托管时
@@ -164,7 +165,7 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 
 | 阶段 | 动作 | 效果 | 前置条件（翻转条件） |
 | :--- | :--- | :--- | :--- |
-| **阶段 1（✅ 已执行 2026-10-15）** | `seed.config` 设 `CONFIG_QUARTZ_FEED_BASE_URL="http://10.0.0.110:880/quartz-feed"`（自建 NAS）→ 重建 | 固件经 `quartz-feed.list` 接入自有 feed（quartz/thirdparty/目标包），索引签名由预置公钥校验；`CONFIG_FEED_*=m` **保持不变**（官方 distfeeds 里那三行仍是注释，不复活死链） | ① feed 已发布且 `apk update` 在干净设备上验签通过（**实测：VM `apk update` 10529 包无 UNTRUSTED + `apk add geo2txt` 从 NAS 装成功**）；② 发布件由稳定密钥签名（`verify-signing.sh` 9/9）；③ URL 可匿名访问（LAN HTTP，签名保护完整性） |
+| **阶段 1（✅ 已执行 2026-10-15）** | `seed.config` 设 `CONFIG_QUARTZ_FEED_BASE_URL="http://<NAS 内网地址>/quartz-feed"`（自建 NAS）→ 重建 | 固件经 `quartz-feed.list` 接入自有 feed（quartz/thirdparty/目标包），索引签名由预置公钥校验；`CONFIG_FEED_*=m` **保持不变**（官方 distfeeds 里那三行仍是注释，不复活死链） | ① feed 已发布且 `apk update` 在干净设备上验签通过（**实测：VM `apk update` 10529 包无 UNTRUSTED + `apk add geo2txt` 从 NAS 装成功**）；② 发布件由稳定密钥签名（`verify-signing.sh` 9/9）；③ URL 可匿名访问（LAN HTTP，签名保护完整性） |
 | **阶段 2（后续，含全量镜像）** | 全量发布（`--feeds all` + 官方 base/luci/packages/... 镜像）→ `CONFIG_VERSION_REPO="https://<托管根>"` + `CONFIG_FEED_{quartz,thirdparty}=y`（video 视上游情况） | 固件完全自包含：distfeeds 全指向自有镜像，可复现升级；ASU/OTA 前提 | ① 阶段 1 稳定运行；② 全量镜像同步管道（约 3.45GB/x86_64 量级）与缓存策略就绪；③ 官方 feed 的镜像时效性监控（避免比锁定基座旧/新错配） |
 
 > 注意：**不要**只把 `CONFIG_FEED_*=y` 翻回来——那会让 distfeeds 重新指向官方
@@ -283,11 +284,11 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 
 ### 9.3 NAS 托管上线 + 阶段 1 翻转（2026-10-15）
 
-- **环境**：fnOS + 宝塔面板（Docker/openresty）；站点 `http://10.0.0.110:880` ↔ 站点根
-  `/vol2/1000/quartzwrt`（实测映射）；**443 为 fnOS 系统 UI**（302→`:5667`），与本站无关。
+- **环境**：自建 NAS 上的容器化静态站点（内网 + 隧道可达）；具体地址、站点根路径与
+  NAS 侧软件栈属**维护者私有记录，不入库**。**NAS 系统管理 UI 与本站各占不同端口，勿混淆。**
 - **发布**：feed 落在站点根下 `quartz-feed/`（专用子目录，`--rsync` 的 `--delete` 不会波及站点文件）；
   267 文件 / 192M 全量到位。
-- **自检**：`scripts/check-feed-live.sh http://10.0.0.110:880/quartz-feed` → **4/4 PASS**。
+- **自检**：`scripts/check-feed-live.sh http://<NAS 内网地址>/quartz-feed` → **4/4 PASS**。
 - **翻转**：`CONFIG_QUARTZ_FEED_BASE_URL` 写入 x86 + FNet3399 双种子（Builder `5733815`）。
 - **构建**（build id `20261015T0230Z-nas-flip`）：`verify-signing.sh` **9/9**；镜像级核验（debugfs）
   feed 三行 / `/etc/quartz-ota.url` / build id 均在位。
@@ -394,7 +395,7 @@ TDD §7.1/§7.4 已按此修订（2026-10-15 用户拍板：本地构建结果�
 
 - 页面在 `publish-feed-all.sh`（以及 `release-local.sh` 的 feed 快照）里自动生成，**无需手工维护**；
 - 包清单由 host apk 解析索引得到——**apk 缺失时默认报错**（防止静默发布"0 个包"的页面）；
-- 站点根 `index.html`（宝塔占位页）在 NAS 发布时用同页覆盖（保留 `.bak` 备份）。
+- 站点根 `index.html`（Web 服务器默认占位页）在 NAS 发布时用同页覆盖（保留 `.bak` 备份）。
 
 ### 12.2 多架构发布（x86_64 + ARM）
 
