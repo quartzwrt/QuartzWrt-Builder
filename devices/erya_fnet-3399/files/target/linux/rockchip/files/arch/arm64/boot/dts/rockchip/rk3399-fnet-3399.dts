@@ -561,3 +561,9 @@
 	status = "okay";
 	dr_mode = "host";
 };
+
+/*
+ * QuartzWrt 设备适配层追加：SW799 核心板板载 AP6236（BCM43430B0）WiFi/蓝牙。
+ * 厂商原版 DTS 不含无线节点；本文件其余内容保持与厂商原件逐字节一致。
+ */
+#include "rk3399-fnet-3399-ap6236.dtsi"
