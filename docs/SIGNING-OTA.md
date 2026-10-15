@@ -364,6 +364,12 @@ scripts/release-local.sh --tag v0.1.0 --build --device erya_fnet-3399
 - **资产**：镜像 `*.img.gz`、`*.manifest`、`*.buildinfo`、`sha256sums`、`profiles.json`、
   `ota-<board>-<subtarget>.json(.sig)`，外加 **feed 快照 `quartz-feed-<tag>.tar.gz`**（不含镜像；
   解压后根即 URL 根，供自建源/离线）；
+- **发布对 = 本次构建目标**（2026-10-15 修正）：feed 发布只重生成**当前构建目标**的 OTA 清单；
+  其它架构内容以**已发布根 `feed-out/`** 为底继承（缺失时才从构建树全量收集）。
+  修正前 `publish-feed-all.sh` 走默认双架构对 → 会把**未重建目标**的 OTA 清单也盖上本次
+  build id（清单报新版本、镜像内仍是旧 id → 该目标设备 OTA 循环）。含义与纪律：**单目标
+  发布（设备轮）只需重建该目标镜像**，其它目标的清单/镜像保持旧版不动；需要"全量集合"的
+  发布则两目标都要重建（同一 build id）；
 - **Release 说明**自动生成（构建标识/基座与 feed 锁定/签名 key id/软件源 URL/安装与升级方法）；
 - 已存在同名 Release 时用 `gh release upload --clobber` 覆盖资产（可重复发布）；
 - **发布纪律**：feed 与固件**同批发布**（包版本戳与 OTA 清单都绑定这一次构建；NAS/Release

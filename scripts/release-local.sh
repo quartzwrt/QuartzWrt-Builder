@@ -77,6 +77,11 @@ else
   ARCH_PKGS="x86_64"; BOARD="x86"; SUB="64"
 fi
 
+# 已发布根（feed-out）：存在则作为发布树/feed 快照的基底（保留其它架构与页面；
+# 见步骤 3 的 publish_feed_tree）。缺失（首次发布）时退回"仅从构建树收集"。
+FEED_SEED=""
+if [ -d "$BUILDER_DIR/../feed-out" ]; then FEED_SEED="$BUILDER_DIR/../feed-out"; fi
+
 # 1. 构建（可选）
 if [ "$DO_BUILD" = 1 ]; then
   step "本地构建（构建标识 = $TAG）"
@@ -108,8 +113,21 @@ for bin in "$TARGET_BIN" ${EXTRA_BINS[@]+"${EXTRA_BINS[@]}"}; do
     -o -name '*.buildinfo' -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} "$OUT/" \;
 done
 if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
-  # 多架构发布（x86_64 + ARM；构建树内两套产物共存，缺哪套自动跳过）+ 软件源页面
-  bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed"
+  # 发布对 = **本次构建目标**（设备模式=设备目标，否则 x86/64）。默认双架构对会把
+  # **未重建目标**的 OTA 清单盖上本次 build id（清单报新版本而镜像内仍是旧 id →
+  # 该目标设备 OTA 循环），故此处显式限定；其它架构内容由"已发布根"继承（见下）。
+  FEED_PAIRS="$ARCH_PKGS:$BOARD:$SUB"
+  publish_feed_tree() {
+    local dest="$1"; shift
+    # 以已发布根（feed-out）为底：保留其它架构/页面/历史，使 feed 快照为全量快照
+    if [ -n "$FEED_SEED" ] && [ ! -d "$dest" ]; then
+      echo "    以已发布根为底：$FEED_SEED → $dest"
+      cp -a "$FEED_SEED" "$dest"
+    fi
+    bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$dest" \
+         --pairs "$FEED_PAIRS" "$@"
+  }
+  publish_feed_tree "$OUT/feed"
   for j in "$OUT/feed"/ota/*/*.json; do
     [ -f "$j" ] || continue
     b="$(basename "$(dirname "$j")")"; sname="$(basename "$j" .json)"
@@ -125,8 +143,8 @@ fi
 
 # 4. 可选：发布 feed 到静态托管（NAS）
 if [ "$DO_PUBLISH_FEED" = 1 ] && [ -n "$RSYNC_DEST" ]; then
-  step "发布 feed 到托管：$RSYNC_DEST（多架构 + 页面，一次同步）"
-  bash "$BUILDER_DIR/scripts/publish-feed-all.sh" --base-dir "$BASE_DIR" --dest "$OUT/feed" --rsync "$RSYNC_DEST"
+  step "发布 feed 到托管：$RSYNC_DEST（当前构建目标对 + 页面，一次同步）"
+  publish_feed_tree "$OUT/feed" --rsync "$RSYNC_DEST"
 fi
 
 # 5. 发布说明
