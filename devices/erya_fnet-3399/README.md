@@ -142,11 +142,14 @@ ImmortalWrt 官方 feed 与本项目双 Feed 中，vendor 成品镜像是从其�
     节点（`brcm,bcm43438-bt`）与 `mmc1 = &sdio0` 别名；
   - 引导链：idbloader/`trust.bin` 与 vendor 逐字节一致；`uboot.img` 与 self 上一轮一致、
     与 vendor 因基座 U-Boot 版本不同而不同（见上节「构建验证（2026-10-14）」更正项）。
-- **遗留**：真机加载（`dmesg | grep -iE "brcmfmac|Bluetooth"`）与首启时序复核待用户执行。
+- **真机验收（2026-10-15，用户实测）**：**WiFi 可用 ✅**——刷入含 AP6236 的 v0.1.1 镜像后
+  无线工作正常（SDIO 枚举 + 固件加载 + 射频可用）。蓝牙（UART0 + `BCM43430B0.hcd`）与
+  其余链路仍待复核；复核判据见上「无线与蓝牙」节（`dmesg | grep -iE "brcmfmac|Bluetooth"`，
+  首启未起时参考移植 60s 后再 `wifi up`）。
 
 ## 已知边界
 
 - SPI 小屏（st7735r）与 PWM 背光在 dts 中默认 `disabled`，未纳入 v1 验收；
-- 无线：**核心板板载 AP6236 已启用**（见「无线与蓝牙」；2026-10-15 追加，构建级验证，
-  真机加载待验收）；底板自身无其他无线（USB/PCIe 网卡可另装）；
+- 无线：**核心板板载 AP6236 已启用并经真机验证（WiFi ✅ 2026-10-15；蓝牙待复核）**；
+  底板自身无其他无线（USB/PCIe 网卡可另装）；
 - 设备实机验收（刷写 + 首启 + LuCI/App 链路）待用户在真机执行——本地只做构建级验证。
