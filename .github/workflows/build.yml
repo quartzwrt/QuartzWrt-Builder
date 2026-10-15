@@ -290,11 +290,14 @@ jobs:
           DEV="${{ steps.tgt.outputs.device }}"
           board="${{ steps.tgt.outputs.board }}"; sub="${{ steps.tgt.outputs.subtarget }}"
           if [ "$KIND" = device ]; then
-            cp "../devices/$DEV/seed.config" .config
+            # WP-12 分层种子装配（common → 目标 → drivers → features → 设备 seed → 设备 preinstall）
+            bash ../scripts/compose-seed.sh --device "$DEV" emit > .config
           elif [ "$KIND" = default ]; then
-            cp ../config/seed.config .config
+            bash ../scripts/compose-seed.sh emit > .config
           else
             # 通用目标（multi/profile）：通用种子 + 按输入注入目标/设备选择
+            # 注：通用路径刻意**不用**分层装配（seed-generic.config 是"任意目标"最小集，
+            # 不含 quartz 既有预装层语义），仅做同一份 Gate A 行级校验。
             cp ../config/seed-generic.config .config
             {
               echo "CONFIG_TARGET_${board}=y"
@@ -308,6 +311,19 @@ jobs:
             } >> .config
           fi
           make defconfig
+          # Gate A（WP-12）：种子行必须原样保留在 defconfig 之后的 .config——
+          # "符号不存在/依赖未满足被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变硬失败。
+          if [ "$KIND" = device ]; then
+            bash ../scripts/compose-seed.sh --device "$DEV" verify .config
+          elif [ "$KIND" = default ]; then
+            bash ../scripts/compose-seed.sh verify .config
+          else
+            while IFS= read -r l; do
+              case "$l" in ''|\#*) continue ;; esac
+              grep -qxF "$l" .config || { echo "FAIL(Gate A): 通用路径种子行被丢弃：$l" >&2; exit 1; }
+            done < ../config/seed-generic.config
+            echo "Gate A 通过（通用路径，seed-generic.config）"
+          fi
           echo "--- 目标相关配置 ---"
           grep -E "^CONFIG_TARGET_${board}(_${sub})?(_DEVICE_[A-Za-z0-9_-]+)?=" .config | head -8
 
@@ -324,9 +340,9 @@ jobs:
           manifest=$(find "$BIN" -name '*.manifest' | head -1)
           [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest"; exit 1; }
           if [ "$KIND" = device ]; then
-            bash ../scripts/check-manifest.sh "$manifest" "${{ steps.tgt.outputs.device }}"
+            bash ../scripts/check-manifest.sh "$manifest" "${{ steps.tgt.outputs.device }}" .
           elif [ "$KIND" = default ]; then
-            bash ../scripts/check-manifest.sh "$manifest"
+            bash ../scripts/check-manifest.sh "$manifest" "" .
           else
             # 通用目标：无 quartz-defaults 预装断言（通用种子只带 quartz 核心）
             echo "OK(通用目标): $(wc -l < "$manifest") 个包；关键包检查："

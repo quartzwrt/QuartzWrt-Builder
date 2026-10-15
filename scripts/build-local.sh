@@ -3,7 +3,7 @@
 #
 # 复刻 .github/workflows/build.yml 的关键步骤，用于开发迭代与调试：
 #   基座检出（锁定 commit）→ feeds 追加注入 → update/install → 同名包检查
-#   → 设备适配层（可选）→ ccache → seed.config + defconfig → make
+#   → 设备适配层（可选）→ ccache → 分层种子装配（compose-seed.sh）+ defconfig + Gate A → make
 #   → manifest 校验 → 产物收集
 #
 # CI 是权威构建与发布通道；本脚本产物仅用于本地调试，禁止作为发布件分发。
@@ -53,12 +53,10 @@ if [ -n "$DEVICE" ]; then
   }
   # shellcheck disable=SC1090
   set -a; . "$DEVICE_ENV"; set +a
-  SEED_FILE="$BUILDER_DIR/devices/$DEVICE/seed.config"
   TARGET_ID="$DEVICE_TARGET_ID"
   ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local/$DEVICE}"
   TARGET_BIN_DIR="$BASE_DIR/bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}"
 else
-  SEED_FILE="$BUILDER_DIR/config/seed.config"
   TARGET_ID="x86-64-generic"
   ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local}"
   TARGET_BIN_DIR="$BASE_DIR/bin/targets/x86/64"
@@ -166,10 +164,15 @@ if [ -n "${QUARTZ_SOURCE_DATE_EPOCH:-}" ]; then
   echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH（可复现构建模式）"
 fi
 
-# 6. 配置：种子 + defconfig 补齐默认项
-step "加载 seed.config（${DEVICE:-x86_64 默认}）并 defconfig"
-cp "$SEED_FILE" "$BASE_DIR/.config"
+# 6. 配置：分层种子装配（scripts/compose-seed.sh，WP-12）+ defconfig 补齐默认项 + Gate A
+#    Gate A：装配行必须原样保留在 defconfig 之后的 .config——把"符号不存在/依赖未满足
+#    被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变成硬失败。
+step "装配种子层并 defconfig（compose-seed.sh${DEVICE:+；设备 $DEVICE}）"
+COMPOSE_ARGS=()
+[ -n "$DEVICE" ] && COMPOSE_ARGS=(--device "$DEVICE")
+bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} emit > "$BASE_DIR/.config"
 (cd "$BASE_DIR" && make defconfig)
+bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} verify "$BASE_DIR/.config"
 
 # 6b. 目标切换护栏：上次目标与本次不同 → dirclean
 # 注意执行顺序：dirclean 按 **当前 .config 的目标域** 清理（rm -rf build_dir/target-<arch>、
@@ -203,7 +206,7 @@ step "全量构建 make -j$JOBS（首次约 45–90 分钟，换架构工具链�
 step "校验固件 manifest"
 manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
 [ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest" >&2; exit 1; }
-bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}"
+bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}" "$BASE_DIR"
 
 # 10b. 设备构建：成品镜像存在性断言
 if [ -n "$DEVICE" ]; then
