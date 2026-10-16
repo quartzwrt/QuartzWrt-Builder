@@ -278,9 +278,14 @@ jobs:
             echo "WARN: 未配置签名 Secrets——开发构建，基座将生成临时密钥（feed 不可发布）"
           fi
           # 构建标识：随镜像投放 /etc/quartz-build-id（OTA 清单以此判定版本新旧）
+          # + /etc/quartz-release 的 QUARTZ_DESCRIPTION（dashboard/App 显示版本串）
           mkdir -p files/etc
-          printf '%s\n' "$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)" > files/etc/quartz-build-id
-          cat files/etc/quartz-build-id
+          BUILD_ID="$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)"
+          printf '%s\n' "$BUILD_ID" > files/etc/quartz-build-id
+          BRANCH="${{ steps.base.outputs.branch }}"
+          printf "# 由构建生成（覆盖 quartz-defaults 兜底值）：QuartzWrt 发行版标识\nQUARTZ_DESCRIPTION='QuartzWrt %s (ImmortalWrt %s)'\n" \
+            "$BUILD_ID" "${BRANCH#openwrt-}" > files/etc/quartz-release
+          cat files/etc/quartz-build-id files/etc/quartz-release
 
       - name: Load build config (种子 + 目标选择)
         working-directory: immortalwrt

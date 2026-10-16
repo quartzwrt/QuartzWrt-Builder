@@ -64,7 +64,8 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
   同时校验"私钥推导公钥 == 给定公钥 == feed 内 quartz-defaults 预置的 `quartz.pem`"——
   **密钥错配直接构建失败**（防"签出来的 feed 没人认"）。
 - `build-local.sh` 步骤 5c/5d：注入密钥 + 写构建标识 `files/etc/quartz-build-id`（随镜像投放，
-  OTA 版本比较的依据）；步骤 10c：签名一致性校验。
+  OTA 版本比较的依据）**与 `files/etc/quartz-release`（`QUARTZ_DESCRIPTION`，dashboard/App
+  显示的版本串；构建期覆盖 quartz-defaults 兜底值）**；步骤 10c：签名一致性校验。
 - CI `build.yml`：job 级 env 承接 Secrets（`secrets` 不能用于 step `if`——WP-6 教训），
   "Inject signing key"步骤注入；`publish=yes` 时**强制要求密钥**（`--require`），普通构建允许
   缺省（开发态临时密钥，verify 步骤跳过并提示）。

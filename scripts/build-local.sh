@@ -149,11 +149,15 @@ bash "$BUILDER_DIR/scripts/inject-signing-key.sh" "$BASE_DIR"
 
 # 5d. 构建标识：随镜像投放 /etc/quartz-build-id（TOPDIR/files 原样覆盖进 rootfs），
 #     publish-feed.sh 的 OTA 清单与设备端 quartz-ota-update 以它判定版本新旧。
+#     同机制再写 /etc/quartz-release（QUARTZ_DESCRIPTION，dashboard/App 显示的版本串）——
+#     覆盖 quartz-defaults 的兜底值：发布构建显示 tag，开发构建显示构建标识。
 #     发布构建建议 QUARTZ_BUILD_ID=<发布 tag>（本地与 CI 同 tag → 同标识，OTA 不误判）。
-step "写入构建标识（/etc/quartz-build-id）"
+step "写入构建标识（/etc/quartz-build-id + /etc/quartz-release）"
 BUILD_ID="${QUARTZ_BUILD_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$(git -C "$BUILDER_DIR" rev-parse --short HEAD 2>/dev/null || echo nogit)}"
 mkdir -p "$BASE_DIR/files/etc"
 printf '%s\n' "$BUILD_ID" > "$BASE_DIR/files/etc/quartz-build-id"
+printf "# 由构建生成（覆盖 quartz-defaults 兜底值）：QuartzWrt 发行版标识\nQUARTZ_DESCRIPTION='QuartzWrt %s (ImmortalWrt %s)'\n" \
+  "$BUILD_ID" "${BASE_BRANCH#openwrt-}" > "$BASE_DIR/files/etc/quartz-release"
 echo "build id: $BUILD_ID"
 
 # 5e. 可复现构建（可选）：固定 SOURCE_DATE_EPOCH——基座 rules.mk/image.mk/rootfs.mk 据此
