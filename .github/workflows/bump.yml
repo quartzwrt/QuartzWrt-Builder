@@ -5,7 +5,10 @@ name: Bump locks & upstream watch
 #   - 检查三处锁定是否有上游更新：ImmortalWrt 基座（config/base.env）、
 #     quartz / thirdparty feed（config/feeds.conf.extra 的 ^SHA）；
 #   - 有更新 → 改锁定 → 推 bump/ 分支 → 开 PR（正文含验证检查单）；
-#   - 另跑「上游发版观察」（thirdparty 受控 Fork 的上游仓库最新 tag/提交，只报告不动作）。
+#   - 另跑「上游发版观察」（thirdparty 受控 Fork 的上游仓库最新 tag/提交，只报告不动作）；
+#   - 另跑「基座 feed 漂移周报」（2026-10-16 拍板：基座自带 feeds 保持分支追踪、不加
+#     SHA 锁——漂移以「最近 Release 的 feeds.buildinfo」为基准报告；只报告不动作，
+#     有漂移时维护一个跟踪 issue，漂移被新发布吸收后自动关闭）。
 #
 # 与构建策略的关系（2026-10-12 用户拍板）：本工作流**只做轻量检查与开 PR**，
 # 不触发全量构建——合并前由维护者手动跑 `gh workflow run build.yml` 或本地
@@ -14,6 +17,11 @@ on:
   schedule:
     - cron: '0 3 * * 1'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只检查与报告：不推分支、不开 PR、不建/改 issue（验证工作流用）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -66,7 +74,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create bump PR
-        if: steps.check.outputs.changed == '1'
+        if: steps.check.outputs.changed == '1' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -99,6 +107,16 @@ jobs:
           gh pr create --title "锁定 bump：$(date -u +%F) 上游更新" \
             --body-file /tmp/pr-body.md --base main --head "$branch" \
             || echo "PR 已存在或创建失败（分支已推送，可手动开 PR）"
+
+      - name: Dry run（只打印拟开 PR 内容，不推分支、不开 PR）
+        if: steps.check.outputs.changed == '1' && inputs.dry_run == true
+        env:
+          # 经 env 中转：正文含 markdown 反引号，直接内联进脚本会被 shell 当命令替换
+          BODY: ${{ steps.check.outputs.body }}
+        run: |
+          echo "dry_run：跳过推分支与开 PR。拟开 PR 正文如下——"
+          printf '%s\n' "$BODY"
+          printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: No updates
         if: steps.check.outputs.changed != '1'
@@ -139,3 +157,103 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
           echo "（对照 FORKS.md 的锁定/上次同步日期判断是否需要同步；有适配改动时先 rebase quartz 分支再复验。）"
+
+  # 基座 feed 漂移周报（2026-10-16 拍板：基座自带 feeds 保持分支追踪、不加 SHA 锁）。
+  # 基准 = 最近一次 Release 随资产发布的 feeds.buildinfo（构建产出，记录当次解析到的
+  # 七条 feed 精确 SHA）；对照基座五条 feed 的分支当前头，报告距上次发布漂移了多少。
+  # 只报告不动作：有漂移 → 创建/更新一个跟踪 issue（同一 issue 反复更新，不逐周新建）；
+  # 漂移被新发布吸收（全为 0）→ 自动关闭。复现/二分时用记录里的 SHA 临时钉住对应 feed。
+  base-feeds-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout Builder
+        uses: actions/checkout@v4
+
+      - name: Report base feeds drift vs last release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -uo pipefail
+          TITLE="基座 feed 漂移跟踪（自动周报）"
+          echo "== 基座 feed 漂移报告（基准：最近 Release 的 feeds.buildinfo） =="
+
+          tag="$(gh release view --json tagName --jq .tagName 2>/dev/null)"
+          if [ -z "${tag:-}" ]; then
+            echo "warn: 仓库还没有 Release（无基准）——跳过。"
+            exit 0
+          fi
+          rm -rf /tmp/rel && mkdir -p /tmp/rel
+          if ! gh release download "$tag" --pattern feeds.buildinfo --dir /tmp/rel --clobber 2>/dev/null; then
+            echo "warn: Release $tag 没有 feeds.buildinfo 资产（无基准）——跳过。"
+            exit 0
+          fi
+          echo "基准：Release $tag"
+
+          . config/base.env  # 基座五条 feed 均跟随基座分支（与 feeds.conf.default 同款）
+          drifted=0
+          rows=""
+          for feed in packages luci routing telephony video; do
+            url="$(sed -n "s|^src-git $feed \([^ ]*\)\^.*|\1|p" /tmp/rel/feeds.buildinfo | head -1)"
+            sha="$(sed -n "s|^src-git $feed [^ ]*\^\([0-9a-f]*\)$|\1|p" /tmp/rel/feeds.buildinfo | head -1)"
+            if [ -z "$url" ] || [ -z "$sha" ]; then
+              echo "warn: $feed 未出现在 feeds.buildinfo（基准缺失）"
+              rows="${rows}| $feed | ? | ? | ? | 基准缺失 |"$'\n'
+              continue
+            fi
+            head_sha="$(git ls-remote "$url" "refs/heads/$BASE_BRANCH" | cut -f1)"
+            if [ -z "$head_sha" ]; then
+              echo "warn: $feed 的分支 $BASE_BRANCH 解析失败（$url）"
+              rows="${rows}| $feed | \`${sha:0:10}\` | ? | ? | 分支 $BASE_BRANCH 解析失败 |"$'\n'
+              continue
+            fi
+            if [ "$head_sha" = "$sha" ]; then
+              rows="${rows}| $feed | \`${sha:0:10}\` | 未动 | 0 | — |"$'\n'
+              continue
+            fi
+            drifted=1
+            owner_repo="$(printf '%s' "$url" | sed -E 's|^https://github\.com/||; s|\.git$||')"
+            # 经 gh 自带的 --jq（不依赖系统 jq，本地/CI 行为一致）
+            n="$(gh api "repos/$owner_repo/compare/$sha...$head_sha" --jq '.total_commits | tostring' 2>/dev/null || true)"
+            subs="$(gh api "repos/$owner_repo/compare/$sha...$head_sha" \
+                    --jq '[.commits[-3:][]? | .commit.message | split("\n")[0]] | join("；")' 2>/dev/null || true)"
+            echo "$feed: ${sha:0:10} → ${head_sha:0:10}（提交 +${n:-?}）"
+            rows="${rows}| $feed | \`${sha:0:10}\` | \`${head_sha:0:10}\` | +${n:-?} | ${subs:-?} |"$'\n'
+          done
+
+          {
+            echo "### 基座 feed 漂移（基准：Release \`$tag\`）"
+            echo ""
+            echo "| feed | 发布时记录 | 当前分支头 | 提交数 | 最近提交 |"
+            echo "| :--- | :--- | :--- | :--- | :--- |"
+            printf '%s' "$rows"
+            echo ""
+            echo "策略（TDD §4.2）：基座自带 feeds 保持分支追踪、不加 SHA 锁——本报告只做可见性；"
+            echo "构建期以 Gate A 兜底（坑位 #56），复现/二分时用 \`feeds.buildinfo\` 记录的 SHA 临时钉住对应 feed。"
+          } > /tmp/drift-report.md
+          cat /tmp/drift-report.md >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "（dry_run）跳过 issue 创建/更新/关闭。"
+            exit 0
+          fi
+          num="$(gh issue list --state open --search 'in:title 基座 feed 漂移' --json number,title \
+                  --jq ".[] | select(.title == \"$TITLE\") | .number" 2>/dev/null | head -1)"
+          if [ "$drifted" = "1" ]; then
+            if [ -n "${num:-}" ]; then
+              gh issue edit "$num" --body-file /tmp/drift-report.md
+              echo "已更新跟踪 issue #$num"
+            else
+              gh issue create --title "$TITLE" --body-file /tmp/drift-report.md
+              echo "已创建跟踪 issue"
+            fi
+          elif [ -n "${num:-}" ]; then
+            gh issue close "$num" --comment "上游已追平（最近的发布已吸收全部漂移），自动关闭。"
+            echo "无漂移，已关闭跟踪 issue #$num"
+          else
+            echo "无漂移，无需动作。"
+          fi

@@ -190,7 +190,8 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
     ```
     > **语法注意（2026-10-12 实测）**：`;` 后跟的是**分支名**，`^` 后跟的才是 **commit SHA**（`scripts/feeds` 源码用 `split(/;/)` 与 `split(/\^/)` 区分）。写成 `;`+SHA 会被当作分支执行 `git clone --branch <sha>`，在 GitHub 上报 `Remote branch ... not found` 直接失败。
 *   **基座锁定**：`QuartzWrt-Builder` 必须记录所用 ImmortalWrt 的**分支 + 精确 commit**，不随上游滚动。
-*   **Bump 机制**：定时 CI job（每周）检查两个 Feed 与基座的上游更新，自动提交 bump PR，CI 通过后合并——参考 Dependabot 的运作方式。**已落地（2026-10-14）**：`.github/workflows/bump.yml`（每周一 + 手动；轻量检查 + 开 PR，**不触发构建**——合并前按 PR 检查单做本地全量 / 手动 CI 权威验收；另附受控 Fork 上游发版观察）。
+*   **基座自带 feeds 不锁（2026-10-16 拍板）**：基座 `feeds.conf.default` 的 packages/luci/routing/telephony/video 保持**分支追踪**（不写 `^SHA`）——发行版价值在自有功能与 App 联动、对基座改动少，上游修复自动跟进即可。漂移以每次构建/发布产出的 `feeds.buildinfo`（七条 feed 的解析 SHA，随 Release 资产）留痕；构建期由 Gate A（装配行必须存活）兜底（WORKPLAN 坑位 #56）。需要复现或二分时，用 `feeds.buildinfo` 里的 SHA 临时钉住对应 feed。
+*   **Bump 机制**：定时 CI job（每周）检查两个 Feed 与基座的上游更新，自动提交 bump PR，CI 通过后合并——参考 Dependabot 的运作方式。**已落地（2026-10-14）**：`.github/workflows/bump.yml`（每周一 + 手动；轻量检查 + 开 PR，**不触发构建**——合并前按 PR 检查单做本地全量 / 手动 CI 权威验收；另附受控 Fork 上游发版观察与**基座 feed 漂移周报**——对照最近 Release 的 `feeds.buildinfo` 报告漂移量，只报告不动作）。
 
 ### 4.3 第三方包版本升级工作流
 
