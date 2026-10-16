@@ -88,9 +88,10 @@ if ! command -v ss >/dev/null || ss -tln 2>/dev/null | grep -q ":$PORT "; then
 fi
 
 # ---- 镜像准备 ----
-# 用 BIOS 变体（ext4-combined，SeaBIOS 直接可引导；EFI 变体需 OVMF，暂不引入）
-IMG_GZ="$(ls -t "$BASE_DIR"/bin/targets/x86/64/*ext4-combined.img.gz 2>/dev/null | grep -v -- '-efi' | head -1 || true)"
-[ -n "$IMG_GZ" ] && [ -f "$IMG_GZ" ] || { echo "错误：未找到 ext4-combined 镜像（先运行 scripts/build-local.sh）" >&2; exit 1; }
+# 用 BIOS 变体（squashfs-combined，SeaBIOS 直接可引导；EFI 变体需 OVMF，暂不引入）。
+# 2026-10-16 起只出 squashfs 镜像（用户指令），原 ext4-combined 已不再生成。
+IMG_GZ="$(ls -t "$BASE_DIR"/bin/targets/x86/64/*squashfs-combined.img.gz 2>/dev/null | grep -v -- '-efi' | head -1 || true)"
+[ -n "$IMG_GZ" ] && [ -f "$IMG_GZ" ] || { echo "错误：未找到 squashfs-combined 镜像（先运行 scripts/build-local.sh）" >&2; exit 1; }
 IMG="$VM_DIR/$(basename "${IMG_GZ%.gz}")"
 mkdir -p "$VM_DIR"
 if [ ! -f "$IMG" ] || [ "$IMG_GZ" -nt "$IMG" ]; then

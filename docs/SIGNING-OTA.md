@@ -476,6 +476,45 @@ Go 不支持的目标架构上会构建失败（如 32 位 powerpc）；② `MUL
 注意 `dump-target-info.pl` **必须在基座树根目录执行**（它按相对路径读 `tmp/.targetinfo`；
 缺元数据时先 `make prepare-tmpinfo`）——用绝对路径从别处调用会静默返回空（实测踩中）。
 
+## 14. 固件变体（标准版 / docker 版）与镜像格式（2026-10-16 用户指令）
+
+**两条规则**：
+
+1. **只出 squashfs 镜像**。`config/common.config` 里关闭：
+   `# CONFIG_TARGET_ROOTFS_EXT4FS is not set`（`include/image.mk` 的 fs-types 由
+   `CONFIG_TARGET_ROOTFS_{SQUASHFS,EXT4FS}` 生成）→ x86 不再产出
+   `ext4-combined{,-efi}` 与 `ext4-rootfs`，设备不再产出 `ext4-sysupgrade`。
+   **机制注意**：该行是 Kconfig 的「显式关掉」写法（语义性注释行）——`compose-seed.sh`
+   自 2026-10-16 起把严格匹配 `# CONFIG_<符号> is not set` 的行当**装配行**参与覆盖与
+   Gate A（此前 `#` 行一律被跳过 → 关闭意图会被静默丢弃）。VM 预览台
+   （`scripts/test-in-vm.sh`）随之改用 `*-squashfs-combined.img.gz`（SeaBIOS 可引导）。
+2. **两个变体**：`std`（标准版，不含 docker 栈）与 `docker`（预装 docker 栈）。
+   变体层 = `config/preinstall/docker.config`（Kconfig 片段，`compose-seed.sh --docker` 装配）
+   ＋ `config/preinstall/docker.files/`（镜像期文件叠加：`/etc/docker/daemon.json` 的
+   nftables 后端配方 + `99-docker-nftables` uci-defaults；机理与关键坑见 WORKPLAN 坑位 #24）。
+   断言随变体翻转：`check-manifest.sh [--docker]`——标准版反向（docker 栈不得在列）、
+   docker 版正向（dockerd/docker/containerd/runc/docker-compose/dockerman 必须在列）。
+
+**构建口径**：`build-local.sh` 默认 `--variants std,docker`，**顺序固定 docker 先、std 后**——
+构建树最终停在标准版（软件源/OTA 取件口径），docker 产物在 std 覆盖树内镜像之前已收集到
+`<产物目录>-docker`。CI `build.yml` 的 `docker` 输入（both/std/docker，默认 both）同款循环；
+产物在 `artifacts/` 内以文件名区分。
+
+**命名**：`-docker` 插在 fs 类型/后缀标记**之前**，保持既有 glob 口径不变——
+`…-erya_fnet-3399-docker-squashfs-sysupgrade.img.gz`、`…-erya_fnet-3399-docker.manifest`、
+`config-docker.buildinfo`。
+
+**发布口径**：GitHub Release **两变体都发**（本地 `release-local.sh` 默认两个变体；
+CI tag 触发同）；**软件源 / OTA 通道只发标准版**——OTA 清单是镜像数组而设备端
+`quartz-ota-update` 取「首个匹配项」，按字典序 docker 版（`-docker-squashfs-`）会排在
+标准版之前，若同列会把所有设备升级成 docker 版；`publish-feed.sh` 因此带护栏：
+构建树 `.config` 里 `CONFIG_PACKAGE_dockerd=y`（docker 变体态）时直接拒绝发布。
+docker 版设备走 OTA 会变成标准版（发行说明已注明）；「按变体 OTA」需设备侧按变体选镜像
+（`/etc/quartz-variant` 标记 + picker 偏好），列为后置项。
+
+**体积**：docker 栈 ~244MB（坑位 #14）；分区尺寸两变体同值（x86 1024 / 设备 1000，不为变体
+改变布局），docker 数据目录 `/opt/docker` 落在可写 overlay。
+
 ## 10. 开放事项
 
 - 阶段 1 已执行（NAS，2026-10-15，见 §9.3）；R2/S3 Secrets 仅在选择公网托管/阶段 2 时才需要。

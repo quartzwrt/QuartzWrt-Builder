@@ -129,6 +129,15 @@ on:
         options:
           - 'no'
           - 'yes'
+      docker:
+        description: '固件变体（both = 标准版 + docker 版，2026-10-16 起默认；只出 squashfs 镜像）'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - 'both'
+          - 'std'
+          - 'docker'
 
 env:
   TZ: Asia/Shanghai
@@ -287,97 +296,152 @@ jobs:
             "$BUILD_ID" "${BRANCH#openwrt-}" > files/etc/quartz-release
           cat files/etc/quartz-build-id files/etc/quartz-release
 
-      - name: Load build config (种子 + 目标选择)
+      - name: Build firmware (变体循环：装配种子 → defconfig → Gate A → make → 校验 → 收集)
         working-directory: immortalwrt
         run: |
           set -euo pipefail
           KIND="${{ steps.tgt.outputs.kind }}"
           DEV="${{ steps.tgt.outputs.device }}"
           board="${{ steps.tgt.outputs.board }}"; sub="${{ steps.tgt.outputs.subtarget }}"
-          if [ "$KIND" = device ]; then
-            # WP-12 分层种子装配（common → 目标 → drivers → features → 设备 seed → 设备 preinstall）
-            bash ../scripts/compose-seed.sh --device "$DEV" emit > .config
-          elif [ "$KIND" = default ]; then
-            bash ../scripts/compose-seed.sh emit > .config
-          else
-            # 通用目标（multi/profile）：通用种子 + 按输入注入目标/设备选择
-            # 注：通用路径刻意**不用**分层装配（seed-generic.config 是"任意目标"最小集，
-            # 不含 quartz 既有预装层语义），仅做同一份 Gate A 行级校验。
-            cp ../config/seed-generic.config .config
-            {
-              echo "CONFIG_TARGET_${board}=y"
-              echo "CONFIG_TARGET_${board}_${sub}=y"
-              if [ "$KIND" = profile ]; then
-                echo "CONFIG_TARGET_${board}_${sub}_DEVICE_${{ inputs.profile }}=y"
+          BIN="${{ steps.tgt.outputs.bin }}"
+
+          # 变体（2026-10-16 用户指令：固件分带/不带 docker 两版）：
+          #   both → docker,std；**固定 docker 先、std 后**——构建树/feed 发布口径停在标准版
+          #   （publish-feed.sh 有对应的 docker 变体护栏；OTA 清单只含标准版）。
+          case "${{ inputs.docker }}" in
+            both)   VARIANTS="docker std" ;;
+            std)    VARIANTS="std" ;;
+            docker) VARIANTS="docker" ;;
+            *) echo "FAIL: 未知 docker 输入：${{ inputs.docker }}" >&2; exit 1 ;;
+          esac
+          echo "变体：$VARIANTS"
+
+          # 变体文件名改写：-docker 插在 fs 类型/后缀标记之前，保持既有 glob 口径
+          # （*-squashfs-sysupgrade.img.gz / *.manifest / *.buildinfo 仍能命中 docker 版）。
+          variant_name() {  # $1=文件名 $2=变体
+            if [ "$2" = "std" ]; then printf '%s' "$1"; return; fi
+            printf '%s' "$1" | sed -E 's/-(squashfs-)/-docker-\1/; s/\.(manifest|buildinfo)$/-docker.\1/'
+          }
+          # docker 变体文件叠加（daemon.json + uci-defaults 配方）→ 构建树 TOPDIR/files；
+          # std 轮显式清理，防复用树串味（CI 每次全新检出，本地构建树才需要——逻辑一致）。
+          docker_files_apply() {  # $1=on|off
+            local rel
+            while IFS= read -r -d '' f; do
+              rel="${f#../config/preinstall/docker.files/}"
+              if [ "$1" = "on" ]; then
+                mkdir -p "files/$(dirname "$rel")"; cp -p "$f" "files/$rel"
               else
-                echo "CONFIG_TARGET_ALL_PROFILES=y"
-                echo "CONFIG_TARGET_MULTI_PROFILE=y"
+                rm -f "files/$rel"
               fi
-            } >> .config
-          fi
-          make defconfig
-          # Gate A（WP-12）：种子行必须原样保留在 defconfig 之后的 .config——
-          # "符号不存在/依赖未满足被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变硬失败。
-          if [ "$KIND" = device ]; then
-            bash ../scripts/compose-seed.sh --device "$DEV" verify .config
-          elif [ "$KIND" = default ]; then
-            bash ../scripts/compose-seed.sh verify .config
-          else
-            while IFS= read -r l; do
-              case "$l" in ''|\#*) continue ;; esac
-              grep -qxF "$l" .config || { echo "FAIL(Gate A): 通用路径种子行被丢弃：$l" >&2; exit 1; }
-            done < ../config/seed-generic.config
-            echo "Gate A 通过（通用路径，seed-generic.config）"
-          fi
-          echo "--- 目标相关配置 ---"
-          grep -E "^CONFIG_TARGET_${board}(_${sub})?(_DEVICE_[A-Za-z0-9_-]+)?=" .config | head -8
+            done < <(find ../config/preinstall/docker.files -type f -print0)
+            if [ "$1" = "off" ]; then rmdir files/etc/docker 2>/dev/null || true; fi
+          }
 
-      - name: Build firmware
-        working-directory: immortalwrt
-        run: make -j$(nproc) V=w
+          mkdir -p ../artifacts
+          for V in $VARIANTS; do
+            echo "::group::变体 $V"
+            COMPOSE_VARIANT=()
+            [ "$V" = "docker" ] && COMPOSE_VARIANT=(--docker)
 
-      - name: Verify packages in manifest
-        working-directory: immortalwrt
-        run: |
-          set -euo pipefail
-          BIN="${{ steps.tgt.outputs.bin }}"
-          KIND="${{ steps.tgt.outputs.kind }}"
-          manifest=$(find "$BIN" -name '*.manifest' | head -1)
-          [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest"; exit 1; }
-          if [ "$KIND" = device ]; then
-            bash ../scripts/check-manifest.sh "$manifest" "${{ steps.tgt.outputs.device }}" .
-          elif [ "$KIND" = default ]; then
-            bash ../scripts/check-manifest.sh "$manifest" "" .
-          else
-            # 通用目标：无 quartz-defaults 预装断言（通用种子只带 quartz 核心）
-            echo "OK(通用目标): $(wc -l < "$manifest") 个包；关键包检查："
-            for p in luci-theme-quartz luci-app-dashboard quartz-daemon quartz-app-api; do
-              grep -q "^${p} " "$manifest" && echo "  PASS: ${p}" || { echo "  FAIL: ${p} 不在 manifest"; exit 1; }
+            echo "--- 装配种子 + defconfig + Gate A"
+            if [ "$KIND" = device ]; then
+              # WP-12 分层种子装配（common → 目标 → drivers → features →[docker]→ 设备 seed → 设备 preinstall）
+              bash ../scripts/compose-seed.sh --device "$DEV" ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} emit > .config
+            elif [ "$KIND" = default ]; then
+              bash ../scripts/compose-seed.sh ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} emit > .config
+            else
+              # 通用目标（multi/profile）：通用种子 + 按输入注入目标/设备选择
+              # 注：通用路径刻意**不用**分层装配（seed-generic.config 是"任意目标"最小集，
+              # 不含 quartz 既有预装层语义），仅做同一份 Gate A 行级校验；docker 变体叠加 docker.config。
+              cp ../config/seed-generic.config .config
+              if [ "${#COMPOSE_VARIANT[@]}" -gt 0 ]; then cat ../config/preinstall/docker.config >> .config; fi
+              {
+                echo "CONFIG_TARGET_${board}=y"
+                echo "CONFIG_TARGET_${board}_${sub}=y"
+                if [ "$KIND" = profile ]; then
+                  echo "CONFIG_TARGET_${board}_${sub}_DEVICE_${{ inputs.profile }}=y"
+                else
+                  echo "CONFIG_TARGET_ALL_PROFILES=y"
+                  echo "CONFIG_TARGET_MULTI_PROFILE=y"
+                fi
+              } >> .config
+            fi
+            make defconfig
+            # Gate A（WP-12）：种子行必须原样保留在 defconfig 之后的 .config——
+            # "符号不存在/依赖未满足被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变硬失败。
+            if [ "$KIND" = device ]; then
+              bash ../scripts/compose-seed.sh --device "$DEV" ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} verify .config
+            elif [ "$KIND" = default ]; then
+              bash ../scripts/compose-seed.sh ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} verify .config
+            else
+              SEED_FILES=(../config/seed-generic.config)
+              if [ "${#COMPOSE_VARIANT[@]}" -gt 0 ]; then SEED_FILES+=(../config/preinstall/docker.config); fi
+              for sf in "${SEED_FILES[@]}"; do
+                while IFS= read -r l; do
+                  case "$l" in ''|\#*) continue ;; esac
+                  grep -qxF "$l" .config || { echo "FAIL(Gate A): 通用路径种子行被丢弃：$l" >&2; exit 1; }
+                done < "$sf"
+              done
+              echo "Gate A 通过（通用路径：$(printf '%s ' "${SEED_FILES[@]##*/}")）"
+            fi
+            echo "--- 目标相关配置 ---"
+            grep -E "^CONFIG_TARGET_${board}(_${sub})?(_DEVICE_[A-Za-z0-9_-]+)?=" .config | head -8
+
+            if [ "$V" = "docker" ]; then docker_files_apply on; else docker_files_apply off; fi
+
+            echo "--- make -j$(nproc)（全量构建；首轮约 60–120 分钟）"
+            make -j"$(nproc)" V=w
+
+            echo "--- Verify packages in manifest"
+            manifest=$(find "$BIN" -name '*.manifest' | head -1)
+            [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest" >&2; exit 1; }
+            if [ "$KIND" = device ]; then
+              bash ../scripts/check-manifest.sh "$manifest" "$DEV" . ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"}
+            elif [ "$KIND" = default ]; then
+              bash ../scripts/check-manifest.sh "$manifest" "" . ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"}
+            else
+              # 通用目标：无 quartz-defaults 预装断言（通用种子只带 quartz 核心）
+              echo "OK(通用目标): $(wc -l < "$manifest") 个包；关键包检查："
+              for p in luci-theme-quartz luci-app-dashboard quartz-daemon quartz-app-api; do
+                grep -q "^${p} " "$manifest" && echo "  PASS: ${p}" || { echo "  FAIL: ${p} 不在 manifest" >&2; exit 1; }
+              done
+            fi
+
+            echo "--- Verify image（只出 squashfs + 成品镜像存在性）"
+            if compgen -G "$BIN/*ext4*" >/dev/null; then
+              echo "FAIL: 出现 ext4 镜像（应只出 squashfs；TARGET_ROOTFS_EXT4FS 未生效？）" >&2
+              exit 1
+            fi
+            if [ "$KIND" = device ]; then
+              . "../devices/$DEV/device.env"
+              img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
+            else
+              img=$(find "$BIN" -maxdepth 1 -name '*.img.gz' | head -1)
+            fi
+            [ -n "$img" ] && echo "OK: $img" || { echo "FAIL: $BIN 下未找到成品镜像" >&2; exit 1; }
+
+            echo "--- Verify signing (WP-9 签名一致性)"
+            if [ -n "${APK_SIGNING_PRIVATE_KEY:-}" ]; then
+              bash ../scripts/verify-signing.sh "$PWD" --arch "${{ steps.tgt.outputs.arch }}" --targets "${{ inputs.target }}"
+            else
+              echo "SKIP: 未配置签名密钥（开发构建）"
+            fi
+
+            echo "--- Collect artifacts（变体改名；两变体共用 artifacts/）"
+            find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \
+              -o -name 'sha256sums' -o -name 'profiles.json' \) -print0 | while IFS= read -r -d '' f; do
+              b="$(basename "$f")"
+              case "$b" in
+                *.img.gz|*.manifest|*.buildinfo)
+                  cp "$f" "../artifacts/$(variant_name "$b" "$V")" ;;
+                *)
+                  if [ "$V" = "std" ]; then cp "$f" ../artifacts/; fi ;;
+              esac
             done
-          fi
-
-      - name: Verify image (成品镜像存在性)
-        working-directory: immortalwrt
-        run: |
-          set -euo pipefail
-          BIN="${{ steps.tgt.outputs.bin }}"
-          KIND="${{ steps.tgt.outputs.kind }}"
-          if [ "$KIND" = device ]; then
-            . "../devices/${{ steps.tgt.outputs.device }}/device.env"
-            img=$(find "$BIN" -name "$DEVICE_IMAGE_GLOB" | head -1)
-          else
-            img=$(find "$BIN" -maxdepth 1 -name '*.img.gz' | head -1)
-          fi
-          [ -n "$img" ] && echo "OK: $img" || { echo "FAIL: $BIN 下未找到成品镜像"; exit 1; }
-
-      - name: Verify signing (WP-9 签名一致性)
-        working-directory: immortalwrt
-        run: |
-          if [ -n "${APK_SIGNING_PRIVATE_KEY:-}" ]; then
-            bash ../scripts/verify-signing.sh "$PWD" --arch "${{ steps.tgt.outputs.arch }}" --targets "${{ inputs.target }}"
-          else
-            echo "SKIP: 未配置签名密钥（开发构建）"
-          fi
+            if [ "$V" = "std" ]; then cp .config ../artifacts/dotconfig; else cp .config ../artifacts/dotconfig-docker; fi
+            ls ../artifacts | head -20
+            echo "::endgroup::"
+          done
 
       - name: Stage feed / OTA publish tree (WP-9 发布整理)
         if: ${{ inputs.publish == 'yes' }}
@@ -408,17 +472,6 @@ jobs:
           path: feed-out/
           retention-days: 14
 
-      - name: Collect artifacts
-        working-directory: immortalwrt
-        run: |
-          set -euo pipefail
-          BIN="${{ steps.tgt.outputs.bin }}"
-          mkdir -p ../artifacts
-          find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \
-            -o -name 'sha256sums' -o -name 'profiles.json' \) -exec cp {} ../artifacts/ \;
-          cp .config ../artifacts/dotconfig
-          ls ../artifacts | head -20
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -426,6 +479,9 @@ jobs:
           path: artifacts/
           retention-days: 14
 
+      # tag 推送时发 Release：artifacts/ 内已含**两个变体**（标准版与 `-docker` 版；
+      # 变体循环收集时改名，见上一步），Release 资产与本地 release-local.sh 口径一致
+      # （只 squashfs、两变体；OTA 清单只含标准版，见 docs/SIGNING-OTA.md §12）。
       - name: Publish release (tag 推送时)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

@@ -12,12 +12,24 @@
 # 两侧共用，避免漂移。
 #
 # 用法:
-#   scripts/build-local.sh                    # 默认目标 x86_64 generic
+#   scripts/build-local.sh                    # 默认目标 x86_64 generic；默认构建 std+docker 两个变体
 #   scripts/build-local.sh --device erya_fnet-3399   # 设备构建（devices/ 适配层）
+#   scripts/build-local.sh --variants std     # 只构建标准版（开发迭代快路径）
+#   scripts/build-local.sh --variants docker  # 只构建 docker 变体（等价 --docker）
+#
+# 变体（2026-10-16 用户指令：「编译分别带/不带 docker 的固件」）：
+#   std    —— 标准版（不含 docker 栈；check-manifest 的 docker 反向断言生效）
+#   docker —— 预装 docker 栈（config/preinstall/docker.config + docker.files 配方；
+#             断言翻为正向后端 nftables）
+#   构建顺序固定 docker → std：构建树最终状态 = 标准版，publish-feed.sh 的 OTA 清单
+#   与软件源 targets 目录据此取件（**OTA 只发标准版**），docker 版产物在 std 构建
+#   覆盖镜像之前已收集到独立目录（<产物目录>-docker）。
 #
 # 环境变量:
 #   QUARTZ_WORK_DIR       构建工作目录（默认 <Builder 仓库>../build）
-#   QUARTZ_ARTIFACTS_DIR  产物输出目录（默认 <Builder 仓库>../artifacts-local[，设备构建加 /<设备名>]）
+#   QUARTZ_ARTIFACTS_DIR  产物输出目录（默认 <Builder 仓库>../artifacts-local[，设备构建加 /<设备名>]；
+#                         docker 变体写到 <该目录>-docker）
+#   QUARTZ_VARIANTS       等价于 --variants（命令行优先；默认 std,docker）
 #   QUARTZ_DEVICE         等价于 --device（命令行优先）
 #   QUARTZ_BUILD_ID       构建标识（随镜像 /etc/quartz-build-id；发布构建建议用发布 tag，
 #                         如 QUARTZ_BUILD_ID=v0.1.0——OTA 版本比较依据，见 docs/SIGNING-OTA.md）
@@ -35,13 +47,32 @@ JOBS="${JOBS:-16}"
 CCACHE_DIR="${CCACHE_DIR:-$WORK_DIR/ccache}"
 
 DEVICE="${QUARTZ_DEVICE:-}"
+VARIANT_LIST="${QUARTZ_VARIANTS:-std,docker}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="${2:?--device 需要参数：设备名（devices/<设备名>/）}"; shift 2 ;;
     --device=*) DEVICE="${1#--device=}"; shift ;;
+    --variants) VARIANT_LIST="${2:?--variants 需要参数：std / docker / std,docker}"; shift 2 ;;
+    --variants=*) VARIANT_LIST="${1#--variants=}"; shift ;;
+    --docker) VARIANT_LIST="docker"; shift ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（用法见 --help）" >&2; exit 1 ;;
   esac
+done
+
+# 变体列表校验 + 构建顺序（固定 docker 先、std 后，见头部说明）
+VARIANTS=()
+for v in ${VARIANT_LIST//,/ }; do
+  case "$v" in
+    std|docker) ;;
+    *) echo "错误：未知变体 '$v'（可选：std / docker）" >&2; exit 1 ;;
+  esac
+  VARIANTS+=("$v")
+done
+[ "${#VARIANTS[@]}" -gt 0 ] || { echo "错误：--variants 为空（可选：std / docker）" >&2; exit 1; }
+BUILD_ORDER=()
+for v in docker std; do
+  for w in "${VARIANTS[@]}"; do [ "$v" = "$w" ] && BUILD_ORDER+=("$v"); done
 done
 
 # 设备参数校验 + 元数据装载（docs/TDD.md §4.6）
@@ -54,11 +85,11 @@ if [ -n "$DEVICE" ]; then
   # shellcheck disable=SC1090
   set -a; . "$DEVICE_ENV"; set +a
   TARGET_ID="$DEVICE_TARGET_ID"
-  ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local/$DEVICE}"
+  ARTIFACTS_BASE="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local/$DEVICE}"
   TARGET_BIN_DIR="$BASE_DIR/bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}"
 else
   TARGET_ID="x86-64-generic"
-  ARTIFACTS_DIR="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local}"
+  ARTIFACTS_BASE="${QUARTZ_ARTIFACTS_DIR:-$BUILDER_DIR/../artifacts-local}"
   TARGET_BIN_DIR="$BASE_DIR/bin/targets/x86/64"
 fi
 TARGET_STAMP="$WORK_DIR/.quartz-target"
@@ -94,7 +125,7 @@ fi
 echo "OK"
 
 # 0. 构建目标（默认 x86_64；--device 时为设备目标）
-step "构建目标：$TARGET_ID${DEVICE:+（设备适配：$DEVICE）}"
+step "构建目标：$TARGET_ID${DEVICE:+（设备适配：$DEVICE）}　·　变体：${BUILD_ORDER[*]}"
 
 # 1. 基座锁定参数（docs/TDD.md §4.2）
 step "加载基座版本（config/base.env）"
@@ -168,73 +199,154 @@ if [ -n "${QUARTZ_SOURCE_DATE_EPOCH:-}" ]; then
   echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH（可复现构建模式）"
 fi
 
-# 6. 配置：分层种子装配（scripts/compose-seed.sh，WP-12）+ defconfig 补齐默认项 + Gate A
-#    Gate A：装配行必须原样保留在 defconfig 之后的 .config——把"符号不存在/依赖未满足
-#    被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变成硬失败。
-step "装配种子层并 defconfig（compose-seed.sh${DEVICE:+；设备 $DEVICE}）"
-COMPOSE_ARGS=()
-[ -n "$DEVICE" ] && COMPOSE_ARGS=(--device "$DEVICE")
-bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} emit > "$BASE_DIR/.config"
-(cd "$BASE_DIR" && make defconfig)
-bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} verify "$BASE_DIR/.config"
-
-# 6b. 目标切换护栏：上次目标与本次不同 → dirclean
-# 注意执行顺序：dirclean 按 **当前 .config 的目标域** 清理（rm -rf build_dir/target-<arch>、
-# bin/targets/<board>/<subtarget>、共享 host 工具与 tmp/），因此必须先落好新 .config 再清理，
-# 清理的才是新目标域的陈旧产物（多目标 build_dir 共存是基座设计，不整树删除）。
-prev_target="$(cat "$TARGET_STAMP" 2>/dev/null || true)"
-if [ -z "$prev_target" ] && [ -d "$BASE_DIR/staging_dir" ]; then
-  prev_target="unknown"   # 老树首次带戳运行：保守清理
-fi
-if [ "$prev_target" != "$TARGET_ID" ]; then
-  if [ -n "$prev_target" ]; then
-    step "目标切换（$prev_target → $TARGET_ID）：make dirclean"
-    (cd "$BASE_DIR" && make dirclean)
-  fi
-  echo "$TARGET_ID" > "$TARGET_STAMP"
-fi
-
-# 7. ccache（与 CI 同样把构建目录 .ccache 链到持久目录）
+# 7. ccache（与 CI 同样把构建目录 .ccache 链到持久目录；变体循环前一次即可）
 step "准备 ccache（$CCACHE_DIR）"
 mkdir -p "$CCACHE_DIR"
 [ -e "$BASE_DIR/.ccache" ] || ln -s "$CCACHE_DIR" "$BASE_DIR/.ccache"
 export CCACHE_DIR
 
-# 8. 全量构建（本地用 V=w 减小日志；CI 首次跑通后也将降级）
-step "全量构建 make -j$JOBS（首次约 45–90 分钟，换架构工具链重建更长）"
-(cd "$BASE_DIR" && make -j"$JOBS" V=w)
+# ─────────────────────────────────────────────────────────────────────────────
+# 6~11. 变体循环（std / docker；公共步骤 1~5e、7 已在循环外完成一次）
+#   每轮：种子装配（含变体层）→ defconfig → Gate A → [docker 文件叠加] → make
+#        → manifest 校验（含变体断言）→ 镜像自检 → 签名校验 → 产物收集（改名）
+#   docker 产物先收集到 <产物目录>-docker，随后 std 构建覆盖树内同名镜像——
+#   循环末尾构建树回到标准版状态（publish/OTA 取件口径，见头部说明）。
+# ─────────────────────────────────────────────────────────────────────────────
 
-# 10. manifest 校验（公共断言 + 设备断言，与 CI 共用 check-manifest.sh）
-# 目标域限定：多目标构建产物在 bin/targets/<board>/<subtarget>/ 共存，
-# 一律按本次目标取 manifest/镜像，避免误取其他目标的存量产物。
-step "校验固件 manifest"
-manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
-[ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest" >&2; exit 1; }
-bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}" "$BASE_DIR"
+variant_artifacts_dir() {  # $1=变体：std → <基>；docker → <基>-docker
+  if [ "$1" = "docker" ]; then printf '%s-docker' "$ARTIFACTS_BASE"; else printf '%s' "$ARTIFACTS_BASE"; fi
+}
 
-# 10b. 设备构建：成品镜像存在性断言
-if [ -n "$DEVICE" ]; then
-  img="$(find "$TARGET_BIN_DIR" -name "$DEVICE_IMAGE_GLOB" | head -1)"
-  if [ -n "$img" ]; then
-    echo "OK(设备镜像): ${img#"$BASE_DIR/"}"
-  else
-    echo "FAIL(设备镜像): 未找到 $DEVICE_IMAGE_GLOB（bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}/）" >&2
+# 变体文件名改写：把 -docker 插在 fs 类型/后缀标记**之前**，保持既有 glob 口径不变
+# （`*-squashfs-sysupgrade.img.gz`、`*.manifest`、`*.buildinfo` 仍能命中 docker 版）。
+variant_name() {  # $1=文件名 $2=变体
+  if [ "$2" = "std" ]; then printf '%s' "$1"; return; fi
+  printf '%s' "$1" | sed -E 's/-(squashfs-)/-docker-\1/; s/\.(manifest|buildinfo)$/-docker.\1/'
+}
+
+# docker 变体文件叠加（config/preinstall/docker.files → 构建树 TOPDIR/files，
+# 与 quartz-build-id/quartz-release 同机制，镜像期原样覆盖进 rootfs）。
+# 变体之间必须**显式清理**：同一棵树先建 docker 再建 std 时，残留文件会被打进 std 镜像。
+DOCKER_FILES_SRC="$BUILDER_DIR/config/preinstall/docker.files"
+docker_files_apply() {  # $1=on|off
+  local rel
+  while IFS= read -r -d '' f; do
+    rel="${f#"$DOCKER_FILES_SRC"/}"
+    if [ "$1" = "on" ]; then
+      mkdir -p "$BASE_DIR/files/$(dirname "$rel")"
+      cp -p "$f" "$BASE_DIR/files/$rel"
+    else
+      rm -f "$BASE_DIR/files/$rel"
+    fi
+  done < <(find "$DOCKER_FILES_SRC" -type f -print0)
+  [ "$1" = "off" ] && rmdir "$BASE_DIR/files/etc/docker" 2>/dev/null || true
+}
+
+build_variant() {
+  local variant="$1" vlabel
+  local compose_variant=()
+  [ "$variant" = "docker" ] && compose_variant=(--docker)
+  case "$variant" in
+    std) vlabel="std（标准版）" ;;
+    docker) vlabel="docker（预装 docker 栈）" ;;
+  esac
+  local art_dir; art_dir="$(variant_artifacts_dir "$variant")"
+
+  COMPOSE_ARGS=()
+  [ -n "$DEVICE" ] && COMPOSE_ARGS=(--device "$DEVICE")
+
+  # 6. 配置：分层种子装配（脚本见 compose-seed.sh）+ defconfig 补齐默认项 + Gate A
+  #    Gate A：装配行必须原样保留在 defconfig 之后的 .config——把"符号不存在/依赖未满足
+  #    被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变成硬失败。
+  step "变体 $vlabel：装配种子层并 defconfig（compose-seed.sh${DEVICE:+；设备 $DEVICE}${compose_variant:+ + docker 层}）"
+  bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} ${compose_variant[@]+"${compose_variant[@]}"} emit > "$BASE_DIR/.config"
+  (cd "$BASE_DIR" && make defconfig)
+  bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} ${compose_variant[@]+"${compose_variant[@]}"} verify "$BASE_DIR/.config"
+
+  # 6b. 目标切换护栏：上次目标与本次不同 → dirclean
+  # 注意执行顺序：dirclean 按 **当前 .config 的目标域** 清理（rm -rf build_dir/target-<arch>、
+  # bin/targets/<board>/<subtarget>、共享 host 工具与 tmp/），因此必须先落好新 .config 再清理，
+  # 清理的才是新目标域的陈旧产物（多目标 build_dir 共存是基座设计，不整树删除）。
+  # 变体切换不改目标，因此只在首个变体可能触发。
+  local prev_target
+  prev_target="$(cat "$TARGET_STAMP" 2>/dev/null || true)"
+  if [ -z "$prev_target" ] && [ -d "$BASE_DIR/staging_dir" ]; then
+    prev_target="unknown"   # 老树首次带戳运行：保守清理
+  fi
+  if [ "$prev_target" != "$TARGET_ID" ]; then
+    if [ -n "$prev_target" ]; then
+      step "目标切换（$prev_target → $TARGET_ID）：make dirclean"
+      (cd "$BASE_DIR" && make dirclean)
+    fi
+    echo "$TARGET_ID" > "$TARGET_STAMP"
+  fi
+
+  # 6c. docker 变体文件叠加/清理（make 之前落位；std 轮清掉，防复用树串味）
+  if [ "$variant" = "docker" ]; then docker_files_apply on; else docker_files_apply off; fi
+
+  # 6d. 陈旧 ext4 镜像清理：本版（2026-10-16 起）已关闭 EXT4FS，但复用构建树里可能
+  #     残留上一轮（改动前）产出的 ext4 镜像——不清理会让下面的"只出 squashfs"自检
+  #     误报（自检本身要留住：它是 EXT4FS 关行失效的兜底）。
+  find "$TARGET_BIN_DIR" -maxdepth 1 -name '*-ext4-*' -delete 2>/dev/null || true
+
+  # 8. 全量构建（本地用 V=w 减小日志；CI 首次跑通后也将降级）
+  step "变体 $vlabel：全量构建 make -j$JOBS（首次约 45–90 分钟，换架构工具链重建更长）"
+  (cd "$BASE_DIR" && make -j"$JOBS" V=w)
+
+  # 10. manifest 校验（公共断言 + 设备断言 + 变体断言，与 CI 共用 check-manifest.sh）
+  # 目标域限定：多目标构建产物在 bin/targets/<board>/<subtarget>/ 共存，
+  # 一律按本次目标取 manifest/镜像，避免误取其他目标的存量产物。
+  step "变体 $vlabel：校验固件 manifest"
+  local manifest
+  manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
+  [ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest" >&2; exit 1; }
+  bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}" "$BASE_DIR" ${compose_variant[@]+"${compose_variant[@]}"}
+
+  # 10b. 镜像格式自检（只出 squashfs，2026-10-16 用户指令）+ 设备镜像存在性
+  if compgen -G "$TARGET_BIN_DIR/*ext4*" >/dev/null; then
+    echo "FAIL: 目标域出现 ext4 镜像（应只出 squashfs）：$(ls "$TARGET_BIN_DIR"/*ext4* 2>/dev/null | tr '\n' ' ')" >&2
     exit 1
   fi
-fi
+  if [ -n "$DEVICE" ]; then
+    local img
+    img="$(find "$TARGET_BIN_DIR" -name "$DEVICE_IMAGE_GLOB" | head -1)"
+    if [ -n "$img" ]; then
+      echo "OK(设备镜像): ${img#"$BASE_DIR/"}"
+    else
+      echo "FAIL(设备镜像): 未找到 $DEVICE_IMAGE_GLOB（bin/targets/${DEVICE_TARGET}/${DEVICE_SUBTARGET}/）" >&2
+      exit 1
+    fi
+  else
+    local n_img
+    n_img="$(find "$TARGET_BIN_DIR" -maxdepth 1 -name '*.img.gz' | wc -l)"
+    [ "$n_img" -gt 0 ] && echo "OK(镜像): $n_img 个（squashfs 系列）" || { echo "FAIL: 未找到成品镜像" >&2; exit 1; }
+  fi
 
-# 10c. 签名一致性校验（WP-9，docs/SIGNING-OTA.md）：feed 索引签名 key id /
-#      镜像内公钥载荷 / quartz-defaults 的 feed 列表与 OTA 件——发布构建的护栏。
-step "签名一致性校验（WP-9）"
-ARCH_PKGS="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' "$BASE_DIR/.config" | head -1)"
-bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${ARCH_PKGS:-x86_64}"
+  # 10c. 签名一致性校验（WP-9，docs/SIGNING-OTA.md）：feed 索引签名 key id /
+  #      镜像内公钥载荷 / quartz-defaults 的 feed 列表与 OTA 件——发布构建的护栏。
+  step "变体 $vlabel：签名一致性校验（WP-9）"
+  local arch_pkgs
+  arch_pkgs="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' "$BASE_DIR/.config" | head -1)"
+  bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${arch_pkgs:-x86_64}"
 
-# 11. 产物收集（与 CI Collect artifacts 一致；同样限定本次目标域）
-step "收集产物 → $ARTIFACTS_DIR"
-mkdir -p "$ARTIFACTS_DIR"
-find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) \
-  -exec cp {} "$ARTIFACTS_DIR/" \;
-cp "$BASE_DIR/.config" "$ARTIFACTS_DIR/dotconfig"
+  # 11. 产物收集（与 CI Collect artifacts 一致；同样限定本次目标域；docker 变体改名）
+  step "变体 $vlabel：收集产物 → $art_dir"
+  mkdir -p "$art_dir"
+  rm -f "$art_dir"/*ext4*   # 产物目录里的陈旧 ext4（历史构建遗留；本版只出 squashfs）
+  find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) \
+    -print0 | while IFS= read -r -d '' f; do
+      cp "$f" "$art_dir/$(variant_name "$(basename "$f")" "$variant")"
+    done
+  cp "$BASE_DIR/.config" "$art_dir/dotconfig"
+  ls -la "$art_dir"
+}
 
-step "完成 ✔ 产物目录: $ARTIFACTS_DIR"
-ls -la "$ARTIFACTS_DIR"
+step "开始构建 ${#BUILD_ORDER[@]} 个变体：${BUILD_ORDER[*]}"
+for v in "${BUILD_ORDER[@]}"; do
+  build_variant "$v"
+done
+
+step "完成 ✔"
+for v in "${BUILD_ORDER[@]}"; do
+  echo "  变体 ${v} 产物目录: $(variant_artifacts_dir "$v")"
+done

@@ -71,6 +71,18 @@ done
 
 [ -n "$BASE_DIR" ] && [ -d "$BASE_DIR" ] || { echo "错误：--base-dir 构建树不存在" >&2; exit 1; }
 [ -n "$DEST" ] || { echo "错误：缺 --dest 输出目录" >&2; exit 1; }
+
+# 变体护栏（2026-10-16 双变体构建）：软件源 / OTA 通道**只发标准版**。
+# OTA 清单是镜像数组、设备端 quartz-ota-update 取「首个匹配项」，而按字典序
+# docker 版（…-docker-squashfs-…）会排在标准版之前 → 若不拦，OTA 会把所有设备
+# 升级成 docker 版。约定：构建树停在标准版（build-local 固定 docker→std 顺序），
+# 若树里 dockerd 被选（= docker 变体构建树），直接拒绝发布并提示。
+if [ -f "$BASE_DIR/.config" ] && grep -q '^CONFIG_PACKAGE_dockerd=y$' "$BASE_DIR/.config"; then
+  echo "错误：当前构建树是 docker 变体（CONFIG_PACKAGE_dockerd=y）——软件源/OTA 只发标准版。" >&2
+  echo "      请先以标准版重建（build-local.sh 会以 std 收尾；或 --variants std），再运行本脚本。" >&2
+  exit 1
+fi
+
 APK="$BASE_DIR/staging_dir/host/bin/apk"
 [ -x "$APK" ] || { echo "错误：未找到 host apk（$APK）" >&2; exit 1; }
 

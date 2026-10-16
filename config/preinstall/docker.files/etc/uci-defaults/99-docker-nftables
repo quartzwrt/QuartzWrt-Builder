@@ -1,0 +1,21 @@
+#!/bin/sh
+# docker × fw4：nftables 后端配方（WORKPLAN 坑位 #24；随 docker 变体层投放）
+#
+# 背景：dockerd 默认走 iptables 后端，本基座的 iptables 是 xtables-nft 兼容层 →
+#   规则以 `-A` 形式出现在 `iptables-save` 输出，LuCI「状态 → nftables」页判为
+#   「检测到旧版规则」并弹告警。配方 = daemon.json 选 nftables 原生后端
+#   （/etc/docker/daemon.json 随本层投放）＋ 让基座 init 以 --config-file 引用它。
+#
+# 关键坑（坑位 #24）：daemon.json 里 "iptables": true 必须保持——置 false 会把
+#   nft 后端的 IPv4 编程一起静默关掉（newDriver 用 EnableIPTables 填
+#   firewaller.Config.IPv4，NewNftabler 见 false 直接跳过且不报错）。
+#   因此这里只关 init 层的 iptables 开关（dockerd.globals.iptables='0'，跳过向
+#   不存在的 DOCKER-USER 链插规则），后端选择交给 daemon.json。
+
+[ -f /etc/config/dockerd ] || exit 0
+
+uci -q set dockerd.globals.iptables='0'
+uci -q set dockerd.globals.alt_config_file='/etc/docker/daemon.json'
+uci -q commit dockerd
+
+exit 0
