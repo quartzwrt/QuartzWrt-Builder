@@ -1,0 +1,53 @@
+# FNet3399 风扇控制真机运行证据（2026-10-16；真机 192.168.1.1，build 20261016T101040Z-0174625）
+# 安装：apk add --allow-untrusted fancontrol-2.0.0-r1 / luci-app-fancontrol-2.0.0-r5 / luci-i18n-fancontrol-zh-cn
+
+fancontrol.settings.exit_speed='255'
+fancontrol.settings.temp_div='1000'
+fancontrol.settings.interval='5'
+fancontrol.settings.debug='0'
+
+== /var/run/fancontrol.status
+running=1
+fan_active=1
+temperature_mc=43333
+pwm=60
+rpm=-1
+thermal_file=/sys/class/thermal/thermal_zone0/temp
+fan_file=/sys/class/hwmon/hwmon2/pwm1
+error=
+
+== procd 服务实例
+{
+	"fancontrol": {
+		"instances": {
+			"instance1": {
+				"running": true,
+				"pid": 14084,
+				"command": [
+					"/usr/bin/fancontrol",
+					"-T",
+					"auto",
+					"-Z",
+					"auto",
+					"-F",
+					"auto",
+					"-N",
+					"auto",
+					"-E",
+					"auto",
+					"-t",
+					"40",
+
+== 采样（20s × 9）：时间 cpu°C pwm(占空比)
+21:38:27  43.3°C  60(23%)
+21:38:47  43.3°C  60(23%)
+21:39:07  43.3°C  57(22%)
+21:39:27  43.3°C  60(23%)
+21:39:47  43.3°C  60(23%)
+21:40:07  42.8°C  60(23%)
+21:40:27  43.3°C  60(23%)
+21:40:47  43.3°C  60(23%)
+21:41:07  42.8°C  60(23%)
+
+== logread | fancontrol
+Fri Oct 16 21:28:55 2026 daemon.notice fancontrol[14084]: using temperature input /sys/class/thermal/thermal_zone0/temp and PWM output /sys/class/hwmon/hwmon2/pwm1

@@ -106,10 +106,54 @@ BT combo）。厂商随附的内核 DTS 只覆盖有线/存储/5G 部分、未�
 
 ## 5G 模组支持（vendor 建议）
 
-vendor 说明「建议使用 qmodem」。qmodem（`luci-app-qmodem` 及 sms/ttl 子包）**不在**
-ImmortalWrt 官方 feed 与本项目双 Feed 中，vendor 成品镜像是从其自备 feed 装入的。
-当前适配**不预装** qmodem；如需 5G 模组管理能力，纳入 WP-7（ThirdParty 扩包）评估
-后再随镜像投放（qmodem 上游为第三方仓库，需按 TDD §6 准入清单评估并锁版本）。
+vendor 说明「建议使用 qmodem」。qmodem **不在** ImmortalWrt 官方 feed 中，由 vendor 自备
+feed 装入其成品镜像。**现状（2026-10-16 起）**：已按 TDD §6 准入清单评估并收录进 thirdparty
+feed，且在设备预装层预装（`luci-app-qmodem-next` + Vendor QMI 驱动切换，见
+`preinstall.config` 与 `config/common.config` 的 `qmodem_INCLUDE_*`）；真机 5G 模组识别
+待复核。本节保留 vendor 建议的原始记录。
+
+## PWM 风扇控制（2026-10-16）
+
+- **硬件与驱动链**：风扇接 `&pwm1`（周期 10000ns，vendor DTS 原样）；DTS 节点 `fan: pwm-fan`
+  含 `#cooling-cells`、**无** `cooling-levels`、**无**风扇冷却映射 → 内核 `pwm-fan`
+  （`kmod-hwmon-pwmfan`，hwmon 设备名 `pwmfan`）+ RK3399 TSADC 热区（`cpu_thermal`/
+  `gpu_thermal`，`CONFIG_ROCKCHIP_THERMAL=y` 内建）；热区冷却映射只绑 CPU/GPU，**内核对
+  风扇零干预**。
+- **控制方案（用户态单写者）**：`fancontrol` 守护进程（thirdparty feed，上游
+  JiaY-shi 2.x，锁 tag `v2.1.0`）按温度曲线连续调 `pwm1`；LuCI 页「服务 → Fan Control」
+  （`luci-app-fancontrol`，含实时状态/趋势图，zh-cn 随镜像）。
+- **设备默认曲线**（`files/target/linux/rockchip/base-files/etc/uci-defaults/99-fancontrol-fnet3399`）：
+  `enabled=1`、`start_temp=45`、`full_speed_temp=75`——75°C 与 cpu_thermal 首级被动降频
+  （70/75°C）对齐，上游默认 85°C 偏高（届时时 SoC 已降频）；其余走上游默认（start_speed 64 /
+  hysteresis 3 / kick 255@500ms 启动助推 / fail_safe 255 全速保护 / interval 5）。
+  `thermal_zone`/`fan_file` 保持 `auto` 自动发现——**不硬编码 hwmon 序号**（随加载模块变化；
+  vendor 旧版即硬编码 `hwmon2`）。
+- **已知行为**：`pwm-fan` 驱动 probe 时**无条件把 PWM 置最大**（vendor DTS 的
+  `rockchip,initial-pwm=0` 是其内核补丁属性，本内核不识别、被忽略）→ **开机至 fancontrol
+  启动前风扇全速**属预期；服务被停用也保持全速（散热安全侧——用户态是唯一调速者）。
+- **镜像内容**：`fancontrol` + `luci-app-fancontrol` + `luci-i18n-fancontrol-zh-cn`
+  随设备镜像预装（`preinstall.config`），包本体来自 thirdparty feed 镜像
+  （`QuartzWrt-ThirdParty/utils/fancontrol/`，台账 FORKS.md）。
+- **真机验证（2026-10-16，真机 192.168.1.1 = 10-16 验证构建）**：
+  - 现场核对：`hwmon0=cpu_thermal / hwmon1=gpu_thermal / hwmon2=pwmfan`、
+    `thermal_zone0=cpu-thermal`、`pwm1_enable` 存在；**未装服务时 `pwm1=255`（风扇全速）**
+    ——实证驱动 probe 无条件置最大（vendor 的 `rockchip,initial-pwm` 在本内核不生效）。
+  - 三个 apk 热装（`--allow-untrusted`）→ `auto` 发现命中（日志：`using temperature input
+    /sys/class/thermal/thermal_zone0/temp and PWM output /sys/class/hwmon/hwmon2/pwm1`）。
+  - 曲线实测（同源 `src/fancontrol.c` 宿主 gcc 编译 + 伪 sysfs 逐点）：45°C→64、
+    50°C→95、60°C→159、70°C→223、75°C→255、≥75°C 钳位 255、<40°C→0，线性插值逐点吻合。
+  - **温度闭环**：风扇全速时 cpu 38.1°C；置 0 后空载 4 分钟 38.1→41.1°C 仍在上升
+    （均衡 ~42-46°C）→ 服务启用本曲线后**稳定 42.8-43.3°C @ PWM 57-60（22-23%）**，
+    关扇爬升趋势被压平、且远低于 70°C 被动降频阈值。
+  - LuCI 页面（服务 → Fan Control）：状态卡实时值（温度/PWM/解析路径/Fault: None）、
+    设置页三页签与 40/75/3 回显、双模渲染均正常；`fs.read_direct` 走 cgi-io
+    （词法规范化、**不解析符号链接**）+ 基座 `luci-mod-system` 的 `cgi-io:download`
+    授权 → 状态文件读取 200（无坑位 #25/#30 类 realpath 陷阱）；`session access
+    uci fancontrol → true`、`service list fancontrol → running:true`。
+  - 证据：`dev/shots/fancontrol/`（双模截图 ×4 + 页面文本 + `device-run-20261016.log`
+    含 uci/status/procd 与 3 分钟采样）。
+  - **说明**：真机上是热装 + 手工写入 uci（与 uci-defaults 同值）；首启由
+    uci-defaults 自动落同一组值的路径由镜像级核验覆盖（见上方"构建验证"轮次）。
 
 ## 构建验证（2026-10-14 本地全量构建）
 

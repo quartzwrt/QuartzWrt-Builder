@@ -1,0 +1,39 @@
+#!/bin/sh
+# FNet3399 PWM 风扇默认参数（WP-11 设备层；经 target/linux/rockchip/base-files 叠加）
+#
+# 机制：fancontrol 守护进程（thirdparty feed 的 luci-app-fancontrol 依赖包）以
+#       hwmon PWM 连续调速；thermal_zone / fan_file 保持 auto——自动发现 CPU/SoC
+#       热区与名为 pwmfan 的 hwmon（hwmon 序号随加载模块变化，硬编码 hwmonN 不可靠）。
+#
+# 曲线依据（RK3399 热区定义见 rk3399-base.dtsi：cpu_thermal 被动降频 70/75°C、
+#       critical 95°C；真机实测 2026-10-16：风扇全速时 cpu 38.1°C、风扇置 0 后空载
+#       4 分钟爬到 41.1°C 仍在上升、均衡约 42-46°C）：
+#         start_temp 40        —— 起转阈值；与 vendor 旧版调校一致（40/40）。实测若取
+#                                 45：空载均衡（42-46°C）恰在阈值附近 → 反复启停
+#                                 （每次启动带 500ms 全速助推，可闻）
+#         start_speed 40       —— 16% 占空比起步（vendor 同款；低占空比靠 kick 助推起转）
+#         full_speed_temp 75   —— 与首级被动降频 75°C 对齐（上游默认 85 偏高，届时
+#                                 SoC 已在降频）
+#       其余（hysteresis 3 / kick 255@500ms 启动助推 / max 255 / fail_safe 255 /
+#       interval 5 / temp_div 1000）沿用上游默认：fail_safe=全速，守护进程异常退出
+#       或温度读取失败时保散热。
+#
+# 真机验证（2026-10-16，本设备）：auto 发现命中 thermal_zone0(cpu-thermal) +
+#       hwmon2(pwmfan)；本配置下 41-42°C 稳态 PWM 46-57（18-22%），温度由"继续爬升"
+#       转为稳定 42.2°C。
+#
+# 已知行为：pwm-fan 驱动 probe 时无条件把 PWM 置最大（vendor DTS 的
+#       rockchip,initial-pwm 属性是 vendor 内核补丁、本内核不识别；真机实测开机
+#       pwm1=255）→ **开机至 fancontrol 启动前风扇全速**属预期；服务被停用同样回到
+#       全速（exit_speed=255 为散热安全值）。
+
+[ -f /etc/config/fancontrol ] || exit 0
+
+uci -q set fancontrol.settings.enabled='1'
+uci -q set fancontrol.settings.start_temp='40'
+uci -q set fancontrol.settings.start_speed='40'
+uci -q set fancontrol.settings.full_speed_temp='75'
+
+uci -q commit fancontrol
+
+exit 0

@@ -1,0 +1,106 @@
+ImmortalWrt
+Dashboard
+STATUS
+Overview
+Routing
+Firewall
+System Log
+Processes
+Channel Analysis
+Realtime Graphs
+SYSTEM
+System
+Administration
+Software
+Startup
+Scheduled Tasks
+Mount Points
+LED Configuration
+Quartz Theme
+Backup / Flash Firmware
+CPU Freq
+Reboot
+MODEM
+QModem
+SERVICES
+OpenClash
+Fan Control
+NETWORK
+Interfaces
+Wireless
+Routing
+DHCP
+DNS
+Diagnostics
+Firewall
+Bandix
+Log out
+Refreshing
+Fan Control
+Configure a continuous PWM curve based on device temperature. Automatic hardware detection is suitable for most devices.
+Runtime Status
+Running
+Temperature
+43.3
+°C
+PWM output
+60
+/ 255 · 24%
+Fan speed
+-
+Temperature input
+/sys/class/thermal/thermal_zone0/temp
+PWM device
+/sys/class/hwmon/hwmon2/pwm1
+Fault
+None
+Settings
+Temperature Curve
+Hardware
+Safety
+Controls when the fan starts and how its speed rises with temperature.
+Enable
+Run the controller and apply this temperature curve.
+Start temperature
+The fan remains off below this temperature and starts at the minimum running PWM when it is reached. Unit: °C.
+Full-speed temperature
+PWM rises linearly and reaches the configured maximum at this temperature. Unit: °C.
+Stop hysteresis
+After starting, the fan stops only after temperature falls this many degrees below the start temperature. This prevents rapid on/off cycling.
+Minimum running PWM
+Lowest PWM used while the fan is running. Increase it if the fan stalls or cannot maintain rotation. Range: 1–255.
+Maximum PWM
+Highest PWM allowed by the curve. A value of 255 means 100% duty cycle.
+Polling interval
+How often the temperature is read and the PWM output is updated. Unit: seconds.
+Automatic detection works on most devices. Select explicit sysfs entries only when necessary.
+Temperature input
+Use "auto" to select a CPU or SoC thermal sensor, or enter an absolute thermal zone or hwmon tempN_input path.
+Thermal zone type
+Preferred thermal zone type when temperature input is automatic, for example cpu_top_thermal. Leave as "auto" unless several sensors are available.
+PWM output
+Use "auto" to select a writable hwmon pwmN output, or enter its absolute path. cooling_device cur_state is not a PWM output.
+Hwmon device name
+Preferred hwmon name when PWM output is automatic. The pwmfan driver is preferred by default.
+PWM mode control
+Optional pwmN_enable path used to select manual PWM mode. With "auto", the matching control is used when available.
+Temperature divisor
+1000
+▾
+Divides the raw sensor value before control calculations. Standard Linux temperature inputs use 1000; sensors reporting whole degrees use 1.
+Controls startup assistance and fail-safe behavior. Full-speed safety defaults are recommended.
+Start kick PWM
+Brief PWM applied when a stopped fan starts. It helps fans that cannot start reliably at low duty. Set to 0 together with a zero duration to disable.
+Start kick duration
+How long the startup kick is applied. Unit: milliseconds.
+Sensor failure PWM
+PWM used when the temperature sensor cannot be read. Keeping 255 is the safest choice.
+Service exit PWM
+PWM written when the service stops. Keeping the fan at full speed avoids losing cooling after an unexpected exit.
+Debug logging
+Write temperature, PWM and RPM values to the system log at every polling interval.
+Save & Apply
+▾
+Save
+Reset
+Powered by LuCI openwrt-25.12 branch (26.249.28459~d6167ea) / ImmortalWrt 25.12-SNAPSHOT (r0+38247-ce35a9e4ef)
