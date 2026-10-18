@@ -278,6 +278,13 @@ devices/<设备名>/
     ```
 3.  **优势**：无需编写任何中间层，上游更新只要 API 不变，App 端完全无感。
 
+**实践判据（2026-10-18 增补，用户授权）**：模式 A/B 的分界**不看「是否自带后端守护进程」，而看「该接口是否为程序化集成而设计」**——返回是否结构化稳定、写面是否有语义保证与结构化错误、是否自带缓存与能力声明。两个判例：
+
+- `luci-app-bandix`：自带 Rust/eBPF 后端与 rpcd，但其 rpcd 面向 UI（核心不可达时**伪造成空设备表**、写面无语义保证）→ 判为**模式 B**，建 `quartz-bandix-bridge`（WP-8）；
+- `luci-app-qmodem`：自带**结构化 rpcd**（44 方法方法表 + 每方法参数声明 + 10s `try_cache` + 自带 acl.d），LuCI 前端为纯 JS → 判为**模式 A**，**直接消费、不建 bridge**（读 = daemon 采集器唯一收口；写 = app-api `ubusfwd` 转发条目表；见 `QuartzWrt-App/docs/W6.12-CELLULAR-DESIGN.md` §3.0）。
+
+**不建 bridge 时的三个替代落点**（避免职责真空）：① 读契约稳定 → 消费侧采集器（上游字段变化只改一处）；② 写契约/校验/审计 → app-api 转发条目表；③ 集成默认值（默认开启、NVM 持久化、定时任务等）→ **设备/配置层**（`devices/<机型>/` uci-defaults 或 preinstall 层）。**回头建 bridge 的条件**：需跨机型写面语义归一、需一次调用组合多步业务、或需向非 root 的 LuCI 会话开放这些能力（ACL 场景）。
+
 ### 模式 B：Bridge 适配层模式 (Bridge Adapter) —— 【兜底模式】
 
 **适用对象**：纯 LuCI 单体应用，所有逻辑（如 `os.execute` 执行 shell 命令）都写在 Lua 控制器中，无独立后端。
