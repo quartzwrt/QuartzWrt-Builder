@@ -7,5 +7,6 @@
 #       因此基座已提供的插件一律不收录（直接 DEPENDS），见 ThirdParty README。
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^a587876f47ed5e654a1fb9d863bb5fb016d1d21a
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^159baa621accb87208d0c19cdd79267945e60fe7
+# 2026-10-19：quartz → 6be604f（路由器 tab 后端 r9 + Dashboard IA v2 卡）；thirdparty → 6f3604e（qmodem quartz2 登记）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^6be604f939421cf5fc9c4ce7b07584aa576913bf
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^6f3604ebd26e74466f5f1b8095152ccab5c52baa
