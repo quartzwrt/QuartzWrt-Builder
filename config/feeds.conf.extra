@@ -7,6 +7,6 @@
 #       因此基座已提供的插件一律不收录（直接 DEPENDS），见 ThirdParty README。
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
-# 2026-10-19：quartz → 00570c5（地址打码可展开 + 系统卡 CPU/进程 + 蜂窝卡 v4 最终：官方运营商 logo〔联通图标完整〕/右下角曲线+y轴/上下行合并/服务小区格/RSSI 同行；daemon r7/app-api r11）；thirdparty → 6f3604e（qmodem quartz2 登记）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^00570c538c3ba9bc60cd03f214bea77e7ae19da4
+# 2026-10-19：quartz → 66f1cef（W6.11 防火墙/管理权/挂载/LED/计划任务 + 蜂窝卡 v4 最终 + 地址打码/系统卡；daemon r7/app-api r13）；thirdparty → 6f3604e（qmodem quartz2 登记）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^66f1cefa2260a6b93dbfbcac089eedb2b85c9be0
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^6f3604ebd26e74466f5f1b8095152ccab5c52baa
