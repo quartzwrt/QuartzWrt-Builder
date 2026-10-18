@@ -7,6 +7,6 @@
 #       因此基座已提供的插件一律不收录（直接 DEPENDS），见 ThirdParty README。
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
-# 2026-10-19：quartz → f3bfce5（Docker 卡增密 + 蜂窝卡按 qModem 首页重排 + daemon r5）；thirdparty → 6f3604e（qmodem quartz2 登记）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^f3bfce5f0de3e3e64e706674fd3fae7c99717694
+# 2026-10-19：quartz → 2a111cf（Docker 卡增密 + 蜂窝卡按 qModem 首页重排 + net.wan.ipv6；daemon r6）；thirdparty → 6f3604e（qmodem quartz2 登记）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^2a111cfa9a8e155ff38fad59bb026eb8fc4d98ad
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^6f3604ebd26e74466f5f1b8095152ccab5c52baa
