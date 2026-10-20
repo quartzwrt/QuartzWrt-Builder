@@ -1,11 +1,11 @@
 # 💎 QuartzWrt 技术设计文档 (TDD)
 
-**文档版本**: v2.0.0（双 Feed 架构与第三方包集成规范合并版）
+**文档版本**: v2.0.1（双 Feed 架构与第三方包集成规范合并版；2026-10-20 增补蜂窝/5G 定位）
 **项目代号**: Quartz (石英)
 **基座系统**: ImmortalWrt (OpenWrt 衍生版)
 **文档状态**: 已确认 (Approved)
 **适用范围**: QuartzWrt 固件构建、App 开发、第三方插件引入
-**最后更新**: 2026-10-14
+**最后更新**: 2026-10-20
 
 > **版本说明**：本文由《QuartzWrt 技术设计文档 v1.1.0》与《QuartzWrt 第三方软件包集成与管理规范 v1.0.0》合并而成，统一了两份文档的术语、修正了与 OpenWrt 构建机制不符的示例，并补充了 Feed 自锁定、运行时资源锁定、签名与 OTA 等章节。
 
@@ -28,7 +28,7 @@
 
 ## 1. 项目执行摘要 (Executive Summary)
 
-**QuartzWrt** 是一个专注于现代化交互体验与移动端联动的 OpenWrt 衍生发行版。本项目通过剥离沉重的底层硬件适配包袱，将研发精力聚焦于**消费级 UI 体验**与**无缝的 App 生态联动**。
+**QuartzWrt** 是一个专注于现代化交互体验、移动端联动与蜂窝/5G 模组管理的 OpenWrt 衍生发行版。本项目通过剥离沉重的底层硬件适配包袱，将研发精力聚焦于**消费级 UI 体验**、**无缝的 App 生态联动**与**基于 qmodem 的蜂窝能力**。
 
 项目采用严格的 **Overlay（覆盖）架构** 与 **双 Feed（双软件源）策略**，将 ImmortalWrt 视为只读基座，通过独立的第三方包收集库与自有核心功能库，结合自动化 CI/CD 流水线，确保系统的高可维护性、稳定性和上游同步能力。
 
@@ -37,12 +37,13 @@
 2. **Quartz App**：跨平台移动端应用，支持局域网自动发现与安全的远程管理。
 3. **双 Feed 软件源**：分离的 `QuartzWrt-Packages`（核心特色）与 `QuartzWrt-ThirdParty`（社区优秀插件）。
 4. **Automated Builder**：基于 GitHub Actions 的全自动固件构建与签名流水线。
+5. **Cellular / 5G 模组管理**：以 qmodem 为基座，覆盖模组信息、信号/小区、拨号、SIM/短信、AT 调试与流量统计，并对 FNet3399 + RG520N-EU 做设备级适配。
 
 ---
 
 ## 2. 核心设计理念 (Design Philosophy)
 
-*   **做减法 (Less is More)**：暂不涉足 5G/CPE 等重度硬件适配，专注于 x86 与主流 ARM 软路由的通用体验。
+*   **做减法 (Less is More)**：不做全品类硬件适配，但蜂窝/5G 模组是当前核心场景之一——以 qmodem 为统一基座，围绕 FNet3399 等目标设备做深度适配，而非铺开所有 5G/CPE 硬件。
 *   **解耦 (Decoupling)**：UI 皮肤与数据聚合分离；前端渲染与后端逻辑分离；**自有核心代码与第三方收集代码分离**。
 *   **不造轮子 (Don't Reinvent the Wheel)**：远程穿透依赖 Tailscale/ZeroTier，推送依赖第三方通道，基座依赖 ImmortalWrt。
 
@@ -241,8 +242,9 @@ devices/<设备名>/
 *   **硬件验收边界**：本层只保证"构建侧适配"（设备被识别、U-Boot/内核 DTB/镜像正确产出）；
     真机刷写与首启验收由设备侧流程完成（x86 的 QEMU 预览台不适用于 ARM 设备镜像）。
 *   **当前设备**：`erya_fnet-3399`（Erya FNet3399，RK3399，rockchip/armv8；适配素材来自 vendor
-    适配包 `Fnet资料`，落地细节与 5G 模组建议（qmodem，未预装、候选归 WP-7）见
-    `devices/erya_fnet-3399/README.md`）。
+    适配包 `Fnet资料`）。蜂窝能力以 qmodem 为基座并已预装（受控 Fork `quartz2` 承载 `lang` 等
+    适配；daemon `cellular`、app-api `qmodem.*`、App 蜂窝 tab 已接入）；设备细节见
+    `devices/erya_fnet-3399/README.md`。
 
 ### 4.7 受控 Fork 规范（2026-10-14 立，用户拍板）
 
