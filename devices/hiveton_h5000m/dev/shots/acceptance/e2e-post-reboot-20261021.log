@@ -1,0 +1,35 @@
+Running build hooks...Running build hooks...== pairing 192.168.1.1:443 ==
+PASS  pair ok · name=ImmortalWrt
+PASS  fingerprint captured (64 hex)
+PASS  tokens issued
+PASS  status via strict-pin client (v=1 host=ImmortalWrt)
+PASS  wrong password rejected (invalid_credentials)
+PASS  packages installed (total=391, first=apk-openssl)
+PASS  packages upgradable readable (ok=true, total=1)
+PASS  packages history readable (ok=true, items=0)
+PASS  packages available search "tail" hits tailscale (9 matches)
+PASS  snapshot.cellular 存在（§3.9 节）
+PASS  cellular 真机：available=true、shown=true、modems=1
+PASS  qmodem.at_cfg 真机 + lang=en（ok，cmds=40）
+PASS  qmodem.tty_ports 真机可达（ok）
+PASS  qmodem 未注册条目被拒（forbidden_action）
+PASS  snapshot.bandix shape (devices=3, online=3, top=3)
+PASS  bandix top item shape (mac/ip/pct)
+PASS  action bandix.limits（读条目；whitelist.enabled=false）
+PASS  bandix 负例：非法 MAC 被拒（bad_request）
+PASS  bandix 负例：未注册动作被拒（forbidden_action）
+PASS  config.read system（@system[0] hostname=ImmortalWrt）
+PASS  luci.init_list（47 个启动项，含 cron/uhttpd）
+PASS  luci.timezones（445 个时区，含 Asia/Shanghai）
+PASS  luci.init_action 负例：路径注入被拒（bad_request）
+PASS  config.read dropbear（main Port=22 PasswordAuth=on）
+PASS  config.read firewall（14 节，zone=true rule=true）
+PASS  luci.set_password 负例：空密码被拒（bad_request）
+PASS  config.read fstab（3 节，global=true）
+PASS  luci.mounts（6 个挂载点）
+PASS  luci.leds（3 个 LED）
+PASS  cron.read（path=/etc/crontabs/root, exists=false）
+PASS  cron.write 负例：控制字符被拒（bad_request）
+PASS  cleanup logout
+
+ALL PASS

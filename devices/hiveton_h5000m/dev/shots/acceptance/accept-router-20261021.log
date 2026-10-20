@@ -1,0 +1,23 @@
+== 路由器 tab 后端验收（2026-10-21T04:06:36+08:00）==
+== 1. 认证 ==
+PASS  登录成功
+== 2. luci 启动项（读/动作/负例） ==
+PASS  init_list 返回启动项（含 cron/uhttpd）
+PASS  init_list 形状（index/enabled）
+PASS  init_action restart cron 成功
+PASS  动作后 cron 仍为 enabled（读回）
+PASS  脚本名路径注入 → bad_request
+PASS  非法动作 → bad_request
+PASS  未声明参数 → forbidden_action
+== 3. luci 时区列表 ==
+PASS  timezones 含 Asia/Shanghai 与 CST-8
+== 4. config.rollback（apply 后立即回滚） ==
+PASS  apply(rollback,60s) 成功
+PASS  apply 后描述已生效（qz-rollback）
+PASS  config.rollback 成功
+PASS  立即回滚后恢复原值（空）
+PASS  回滚后 confirm 不再改变状态（幂等/无待确认）
+== 5. 清理 ==
+PASS  现场复原（description 回原值）
+
+== 汇总: PASS=15 FAIL=0（日志 /tmp/accept-router-20261021-040636.log）==

@@ -125,6 +125,10 @@ gh workflow run build.yml -f device=erya_fnet-3399
     （`config/preinstall/docker.config` + `docker.files` 的 nftables 配方，见 docs/SIGNING-OTA.md §14）。
     构建顺序固定 **docker 先、std 后**（构建树停在标准版）；产物分别落在
     `artifacts-local[ /<设备>]` 与 `…-docker`，docker 文件名带 `-docker` 标记。
+  - **Docker 数据目录（H5000M / FNet3399）**：squashfs+overlay 根分区上，默认
+    `/opt/docker` 会触发 overlay-on-overlay（`docker run` 报 `invalid argument`）。
+    请在 LuCI → 服务 → Docker 重新选择数据目录到非 overlay 文件系统，或在
+    `/etc/docker/daemon.json` 设 `"storage-driver": "vfs"` 后重启 dockerd。
   - 只要标准版（快速迭代）：`scripts/build-local.sh --variants std`。
 - **单包快速验证**（几分钟级）：
 

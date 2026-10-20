@@ -1,0 +1,18 @@
+# H5000M 重启后复验（2026-10-21）
+uptime:  04:30:34 up 17 min,  load average: 0.51, 0.50, 0.39
+usb speed: 5000
+usb version:  3.20
+usb product: RG520N-EU
+qmodem sections:
+qmodem.1_1=modem-device
+qmodem.1_1.path='/sys/bus/usb/devices/1-1/'
+qmodem.1_1.state='disabled'
+qmodem.2_1=modem-device
+qmodem.2_1.path='/sys/bus/usb/devices/2-1/'
+qmodem.2_1.state='enabled'
+daemon: quartz-daemon-0.1.0-r9 aarch64_cortex-a53 {feeds/quartz/feeds/quartz/utils/quartz-daemon} (GPL-2.0-only) [installed]
+app-api: quartz-app-api-0.1.0-r15 aarch64_cortex-a53 {feeds/quartz/feeds/quartz/utils/quartz-app-api} (GPL-2.0-only) [installed]
+snapshot.cellular.available: True
+snapshot.cellular.modems: ['2_1']
+  2_1 dial= {'running': True, 'rx_bps': 207500, 'tx_bps': 16467} rsrp= -82
+snapshot.errors: []

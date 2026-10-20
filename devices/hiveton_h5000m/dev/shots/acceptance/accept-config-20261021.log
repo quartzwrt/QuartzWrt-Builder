@@ -1,0 +1,26 @@
+== 配置面 VM 验收（2026-10-21T04:06:16+08:00）==
+== 1. 认证与配置会话（login 时开启保留会话） ==
+PASS  登录成功（并开启配置会话）
+PASS  设备记录已持久化配置会话 sid（命中 4）
+== 2. 读面（注册表白名单 + 敏感掩码语义） ==
+PASS  读 system 全量（含真实 hostname=ImmortalWrt）
+PASS  读 network.lan.ipaddr（含真实值 192.168.1.1）
+PASS  未注册配置 openclash → forbidden_action
+PASS  未注册选项 → forbidden_action
+== 3. 写（暂存）+ 负例 ==
+PASS  写入 description 返回待应用改动
+PASS  真实配置未被修改（暂存语义）
+PASS  非法字符值（hostname 含分号）→ bad_request
+PASS  未注册选项写入 → forbidden_action
+== 4. 应用 + 回滚安全网（不确认 → 自动回滚） ==
+PASS  apply(rollback,10s) 成功
+PASS  apply 后真实配置生效（description=qz-accept）
+PASS  10s 超时未确认 → 自动回滚到原值
+== 5. 应用 + 确认（落盘） ==
+PASS  confirm 成功
+PASS  确认后值保留（qz-accept2）
+PASS  现场复原（description 回原值）
+== 6. 会话缺失（logout 销毁会话 → 配置写入需重新登录） ==
+PASS  logout 后本设备记录已移除（sid 随之清除）
+
+== 汇总: PASS=17 FAIL=0（日志 /tmp/accept-config-20261021-040616.log）==
