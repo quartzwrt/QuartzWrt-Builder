@@ -21,5 +21,6 @@ uci -q set fancontrol.settings.start_speed='64'
 uci -q set fancontrol.settings.full_speed_temp='80'
 
 uci -q commit fancontrol
+[ -x /etc/init.d/fancontrol ] && /etc/init.d/fancontrol enable
 
 exit 0
