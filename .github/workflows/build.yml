@@ -428,11 +428,11 @@ jobs:
             fi
 
             echo "--- Collect artifacts（变体改名；两变体共用 artifacts/）"
-            find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \
+            find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' -o -name '*.buildinfo' \
               -o -name 'sha256sums' -o -name 'profiles.json' \) -print0 | while IFS= read -r -d '' f; do
               b="$(basename "$f")"
               case "$b" in
-                *.img.gz|*.manifest|*.buildinfo)
+                *.img.gz|*sysupgrade*.bin|*.manifest|*.buildinfo)
                   cp "$f" "../artifacts/$(variant_name "$b" "$V")" ;;
                 *)
                   if [ "$V" = "std" ]; then cp "$f" ../artifacts/; fi ;;

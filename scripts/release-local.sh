@@ -138,7 +138,7 @@ for v in ${VARIANT_LIST//,/ }; do
   if [ ! -d "$vdir" ]; then
     if [ "$v" = "std" ]; then
       echo "  注：未找到标准版产物目录 $vdir —— 回退从构建树收集（未按变体改名）"
-      find "$TARGET_BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' \) -exec cp {} "$OUT/" \;
+      find "$TARGET_BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' \) -exec cp {} "$OUT/" \;
       continue
     fi
     echo "  WARN: 未找到变体 $v 的产物目录 $vdir —— 该变体不进本次发布（先跑 build-local.sh --variants $VARIANT_LIST）" >&2
@@ -149,7 +149,7 @@ for v in ${VARIANT_LIST//,/ }; do
     case "$(basename "$f")" in *ext4*) continue ;; esac   # 只发 squashfs（2026-10-16）
     cp -f "$f" "$OUT/"; n=$((n+1))
   done \
-    < <(find "$vdir" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) -print0)
+    < <(find "$vdir" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' -o -name '*.buildinfo' \) -print0)
   echo "  变体 $v：$n 个文件 ← $vdir"
 done
 if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
@@ -217,13 +217,15 @@ if [ -z "$NOTES_FILE" ]; then
 | :--- | :--- |
 | \`*-squashfs-combined*.img.gz\` | x86_64 完整磁盘镜像（\`-efi\` 为 UEFI 引导） |
 | \`*-docker-squashfs-*.img.gz\` | 同上 + **预装 docker 栈**（dockerd/containerd/compose + dockerman 页） |
+| \`*-sysupgrade.bin\` | 设备 sysupgrade 镜像（H5000M 等 filogic 目标；\`-docker\` 版同名带标记） |
 | \`*.manifest\` / \`*-docker.manifest\` | 包清单（两变体各一份；\`-docker\` 版含 docker 栈） |
 | \`sha256sums\` / \`profiles.json\` | 校验和（\`sha256sum -c sha256sums\`）/ 设备档案 |
 | \`ota/$BOARD/$SUB.json(.sig)\` | OTA 版本清单（usign 签名；**只含标准版**，见下"固件 OTA"注） |
 | \`quartz-feed-$TAG.tar.gz\` | 本版 feed 快照（不含镜像；解压后根即 URL 根，供自建源/离线） |
 
 ## 安装与升级
-- 刷写：把 \`*.img.gz\` 解压后写盘（x86 软路由/虚拟机；EFI 机器用 \`-efi\` 版）。
+- 刷写：把 \`*.img.gz\` 解压后写盘（x86 软路由/虚拟机；EFI 机器用 \`-efi\` 版）；
+  filogic 设备的 \`*-sysupgrade.bin\` 直接用于系统升级/刷写。
   需要 docker 的机器请选文件名带 \`-docker\` 的镜像（两版除 docker 栈外内容一致）；
   docker 变体已预置 nftables 后端配方（\`/etc/docker/daemon.json\` + dockerd uci），
   与 fw4 无「检测到旧版规则」告警（机理见 Builder \`docs/SIGNING-OTA.md\` 与坑位 #24）。
@@ -238,7 +240,7 @@ fi
 
 # 6. 发布（显式资产列表：不含 feed/ 目录本身，feed 以 tarball 形式发布）
 ASSETS=()
-for f in "$OUT"/*.img.gz "$OUT"/*.manifest "$OUT"/*.buildinfo "$OUT"/sha256sums "$OUT"/profiles.json \
+for f in "$OUT"/*.img.gz "$OUT"/*sysupgrade*.bin "$OUT"/*.manifest "$OUT"/*.buildinfo "$OUT"/sha256sums "$OUT"/profiles.json \
          "$OUT"/ota-*.json "$OUT"/ota-*.json.sig "$OUT"/quartz-feed-*.tar.gz; do
   [ -f "$f" ] && ASSETS+=("$f")
 done

@@ -241,10 +241,15 @@ devices/<设备名>/
     + 成品镜像存在性（`DEVICE_IMAGE_GLOB`，如 `*erya_fnet-3399*squashfs-sysupgrade.img.gz`）。
 *   **硬件验收边界**：本层只保证"构建侧适配"（设备被识别、U-Boot/内核 DTB/镜像正确产出）；
     真机刷写与首启验收由设备侧流程完成（x86 的 QEMU 预览台不适用于 ARM 设备镜像）。
-*   **当前设备**：`erya_fnet-3399`（Erya FNet3399，RK3399，rockchip/armv8；适配素材来自 vendor
-    适配包 `Fnet资料`）。蜂窝能力以 qmodem 为基座并已预装（受控 Fork `quartz2` 承载 `lang` 等
-    适配；daemon `cellular`、app-api `qmodem.*`、App 蜂窝 tab 已接入）；设备细节见
-    `devices/erya_fnet-3399/README.md`。
+*   **当前设备**：
+    *   `erya_fnet-3399`（Erya FNet3399，RK3399，rockchip/armv8；适配素材来自 vendor 适配包
+        `Fnet资料`）。蜂窝能力以 qmodem 为基座并已预装（受控 Fork `quartz2` 承载 `lang` 等
+        适配；daemon `cellular`、app-api `qmodem.*`、App 蜂窝 tab 已接入）；设备细节见
+        `devices/erya_fnet-3399/README.md`。
+    *   `hiveton_h5000m`（Hiveton H5000M，MT7987A，mediatek/filogic，WiFi 7 + M.2 USB 5G）。
+        基座原生支持、无需厂商补丁；完整 `quartz-defaults` + qmodem 5G 栈 + fancontrol
+        保守曲线，`std`/`docker` 双变体；产物为 `sysupgrade.bin`。设备细节见
+        `devices/hiveton_h5000m/README.md`。
 
 ### 4.7 受控 Fork 规范（2026-10-14 立，用户拍板）
 

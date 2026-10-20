@@ -333,7 +333,7 @@ build_variant() {
   step "变体 $vlabel：收集产物 → $art_dir"
   mkdir -p "$art_dir"
   rm -f "$art_dir"/*ext4*   # 产物目录里的陈旧 ext4（历史构建遗留；本版只出 squashfs）
-  find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*.manifest' -o -name '*.buildinfo' \) \
+  find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' -o -name '*.buildinfo' \) \
     -print0 | while IFS= read -r -d '' f; do
       cp "$f" "$art_dir/$(variant_name "$(basename "$f")" "$variant")"
     done

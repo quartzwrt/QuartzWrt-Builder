@@ -1,0 +1,25 @@
+#!/bin/sh
+# Hiveton H5000M PWM 风扇默认参数（设备层；保守曲线）
+#
+# thermal_zone / fan_file / fan_hwmon 保持 auto：按 hwmon name=pwmfan 自动发现，
+# 不硬编码 hwmonN（序号随加载模块变化）。
+#
+# 曲线（保守，待真机复核）：
+#   start_temp 45       —— 45°C 起转，早于 fancontrol 上游默认的 45°C（相同），
+#                          但比 FNet3399 的 40°C 更晚，减少低速空载启停。
+#   start_speed 64      —— 25% 占空比起步，兼顾起转与噪音。
+#   full_speed_temp 80  —— 80°C 前线性升到全速，早于上游默认 85°C。
+#   hysteresis / kick / fail_safe 等沿用上游默认（fail_safe=全速）。
+#
+# 真机验收时重点看：起转是否可靠、稳态温度、是否频繁启停；必要时只调这三个值。
+
+[ -f /etc/config/fancontrol ] || exit 0
+
+uci -q set fancontrol.settings.enabled='1'
+uci -q set fancontrol.settings.start_temp='45'
+uci -q set fancontrol.settings.start_speed='64'
+uci -q set fancontrol.settings.full_speed_temp='80'
+
+uci -q commit fancontrol
+
+exit 0
