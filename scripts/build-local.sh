@@ -36,6 +36,10 @@
 #   QUARTZ_SOURCE_DATE_EPOCH  可复现构建：固定 SOURCE_DATE_EPOCH（基座据此固定包/镜像
 #                         内时间戳；本地与 CI 用同一值可让同机重复构建逐字节一致）
 #   QUARTZ_SIGNING_DIR    签名密钥目录（见 scripts/inject-signing-key.sh；发布构建必给）
+#   QUARTZ_SKIP_FEEDS_UPDATE=1  离线/网络故障：跳过 feeds update，仅 install 当前已锁定内容
+#                         （用于基座树已有正确 feeds 的增量重建；不要用于首次/换锁构建）
+#   QUARTZ_SKIP_BASE_FETCH=1    离线/网络故障：跳过基座 git fetch（仍 checkout 锁定 commit；
+#                         基座树必须已存在且包含该 commit）
 #   JOBS                  make 并行度（默认 16；本机 15GB 内存勿再调高）
 
 set -euo pipefail
@@ -136,10 +140,17 @@ mkdir -p "$WORK_DIR"
 
 # 2. 检出 / 更新基座到锁定 commit，不随上游滚动
 step "检出 ImmortalWrt 基座到锁定 commit"
-if [ -d "$BASE_DIR/.git" ]; then
-  git -C "$BASE_DIR" fetch origin "$BASE_BRANCH"
+if [ "${QUARTZ_SKIP_BASE_FETCH:-0}" = 1 ]; then
+  [ -d "$BASE_DIR/.git" ] || { echo "错误：QUARTZ_SKIP_BASE_FETCH=1 但基座树不存在" >&2; exit 1; }
+  git -C "$BASE_DIR" cat-file -e "$BASE_COMMIT^{commit}" 2>/dev/null || {
+    echo "错误：QUARTZ_SKIP_BASE_FETCH=1 但基座树缺少 commit $BASE_COMMIT" >&2; exit 1; }
+  echo "跳过基座 fetch（QUARTZ_SKIP_BASE_FETCH=1）"
 else
-  git clone "https://github.com/$BASE_OWNER_REPO.git" "$BASE_DIR"
+  if [ -d "$BASE_DIR/.git" ]; then
+    git -C "$BASE_DIR" fetch origin "$BASE_BRANCH"
+  else
+    git clone "https://github.com/$BASE_OWNER_REPO.git" "$BASE_DIR"
+  fi
 fi
 git -C "$BASE_DIR" checkout "$BASE_COMMIT"
 
@@ -154,10 +165,15 @@ tail -n 4 "$BASE_DIR/feeds.conf"
 # checkout 会直接跳过（源码注释 "in case git hash has been provided don't update
 # the feed"），配置改 SHA 后不会重新检出。因此每轮强制删除旧目录，保证按锁定
 # SHA 重新克隆、修复包增删后的残留（CI 每次全新检出，无此问题）。
-step "feeds update + install"
-rm -rf "$BASE_DIR/feeds/quartz" "$BASE_DIR/feeds/thirdparty" \
-       "$BASE_DIR/package/feeds/quartz" "$BASE_DIR/package/feeds/thirdparty"
-(cd "$BASE_DIR" && ./scripts/feeds update -a && ./scripts/feeds install -a)
+if [ "${QUARTZ_SKIP_FEEDS_UPDATE:-0}" = 1 ]; then
+  step "feeds install（QUARTZ_SKIP_FEEDS_UPDATE=1：跳过网络更新，使用已锁定/已安装 feeds）"
+  (cd "$BASE_DIR" && ./scripts/feeds install -a)
+else
+  step "feeds update + install"
+  rm -rf "$BASE_DIR/feeds/quartz" "$BASE_DIR/feeds/thirdparty" \
+         "$BASE_DIR/package/feeds/quartz" "$BASE_DIR/package/feeds/thirdparty"
+  (cd "$BASE_DIR" && ./scripts/feeds update -a && ./scripts/feeds install -a)
+fi
 for f in quartz thirdparty; do
   echo "feed $f @ $(git -C "$BASE_DIR/feeds/$f" rev-parse HEAD)"
 done
