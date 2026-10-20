@@ -87,7 +87,7 @@ for f in "${FILES[@]}"; do
       '# CONFIG_'*' is not set')
         # 语义性注释行：严格整行匹配 `# CONFIG_<符号> is not set` 才算
         # （带尾注的同形行、以及其它 # 行仍是注释，直接跳过）。
-        key="$(printf '%s' "$stripped" | sed -n 's/^# \(CONFIG_[A-Za-z0-9_]*\) is not set$/\1/p')"
+        key="$(printf '%s' "$stripped" | sed -n 's/^# \(CONFIG_[A-Za-z0-9_.-]*\) is not set$/\1/p')"
         [ -n "$key" ] || continue
         ;;
       '#'*) continue ;;

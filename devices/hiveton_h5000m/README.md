@@ -25,6 +25,9 @@ scripts/build-local.sh --device hiveton_h5000m --variants std,docker
   `full_speed_temp=80`），由 `files/.../99-fancontrol-h5000m` 写入。
 - 基座设备包（WiFi 7 固件、USB3、f2fs/automount 等）由
   `Device/hiveton_h5000m` 的 `DEVICE_PACKAGES` 带出。
+- **只保留板载 WiFi**：通用层的加装 USB/PCIe 网卡驱动（mt792x、rtw8x、iwlwifi、
+  ath11k/ath12k、aic8800 等）在本设备层全部显式关闭，仅保留 MT7996E + MT7992-23
+  驱动/固件与 `wpad-openssl` / `wifi-scripts` / `wireless-regdb`。
 
 ## 待真机复核
 
