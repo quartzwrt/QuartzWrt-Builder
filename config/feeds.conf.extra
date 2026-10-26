@@ -8,5 +8,5 @@
 # 注意：scripts/feeds 只把 "# 后有字符" 的行当注释，禁用裸井号行（会报语法错误）。
 
 # 2026-10-19：quartz → 66f1cef（W6.11 防火墙/管理权/挂载/LED/计划任务 + 蜂窝卡 v4 最终 + 地址打码/系统卡；daemon r7/app-api r13）；thirdparty → 6f3604e（qmodem quartz2 登记）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^66f1cefa2260a6b93dbfbcac089eedb2b85c9be0
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^74279146a46ce12bfbafe06e8aae837217f1bedc
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^6f3604ebd26e74466f5f1b8095152ccab5c52baa
