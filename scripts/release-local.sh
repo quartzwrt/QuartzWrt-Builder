@@ -168,12 +168,13 @@ if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
          --pairs "$FEED_PAIRS" "$@"
   }
   publish_feed_tree "$OUT/feed"
-  for j in "$OUT/feed"/ota/*/*.json; do
-    [ -f "$j" ] || continue
-    b="$(basename "$(dirname "$j")")"; sname="$(basename "$j" .json)"
-    cp -f "$j" "$OUT/ota-$b-$sname.json"
-    cp -f "$j.sig" "$OUT/ota-$b-$sname.json.sig" 2>/dev/null || true
-  done
+  # 只把本次目标对的 OTA 清单放进 Release；其它目标的清单留在 feed 树/feed-out 中，
+  # 避免设备 Release 出现不属于本目标的 OTA 资产（例如 H5000M 发布里混入 x86/rockchip）。
+  _ota_json="$OUT/feed/ota/$BOARD/$SUB.json"
+  if [ -f "$_ota_json" ]; then
+    cp -f "$_ota_json" "$OUT/ota-$BOARD-$SUB.json"
+    cp -f "$_ota_json.sig" "$OUT/ota-$BOARD-$SUB.json.sig" 2>/dev/null || true
+  fi
   if [ "$FEED_TARBALL" = 1 ]; then
     step "打包 feed 快照（不含镜像；含软件源页面）"
     ( cd "$OUT/feed" && tar --exclude='*.img.gz' --exclude='*.bin' -czf "$OUT/quartz-feed-$TAG.tar.gz" . )
