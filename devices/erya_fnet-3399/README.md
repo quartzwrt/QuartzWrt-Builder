@@ -112,6 +112,24 @@ feed，且在设备预装层预装（`luci-app-qmodem-next` + Vendor QMI 驱动�
 `preinstall.config` 与 `config/common.config` 的 `qmodem_INCLUDE_*`）；真机 5G 模组识别
 待复核。本节保留 vendor 建议的原始记录。
 
+### TDTech MH5000-82M（2026-10-31）
+
+同一内核补丁已投放到
+`files/target/linux/rockchip/patches-6.12/999-usb-serial-option-add-tdtech-mh5000-82m.patch`：
+给 `drivers/usb/serial/option.c` 补 `1782:4056/4057/4058`（RNDIS/ECM/NCM）三个
+release PID，并保留 interface 3–6（DIAG/LOG/MODEM/Common AT），只让 interface 2
+生成 `/dev/ttyUSB0` AT 口。qmodem 自带 `mh5000-82m` profile 与端口规则，开机/
+热插拔自动识别，无需手工指定 tty。接口布局、构建注意事项与真机验证命令详见
+`devices/hiveton_h5000m/README.md` 的「MH5000-82M 5G 模组适配」章节。
+
+## Web 终端（ttyd / luci-app-ttyd，2026-11-01）
+
+通用功能层预装 `ttyd` + `luci-app-ttyd` + `luci-i18n-ttyd-zh-cn`；设备层加
+`files/target/linux/rockchip/base-files/etc/uci-defaults/99-ttyd-quartz` 与
+`base-files/usr/bin/ttyd-login-check`：默认 `@lan`、`check_origin=1`、
+`max_clients=2`，root 密码未设置时拒绝进入，避免 LAN 7681 变成免密 root shell。
+详见 `devices/hiveton_h5000m/README.md` 的「Web 终端」章节。
+
 ## PWM 风扇控制（2026-10-16）
 
 - **硬件与驱动链**：风扇接 `&pwm1`（周期 10000ns，vendor DTS 原样）；DTS 节点 `fan: pwm-fan`

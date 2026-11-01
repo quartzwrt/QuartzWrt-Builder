@@ -1,0 +1,67 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -627,6 +627,11 @@
+ #define UNISOC_PRODUCT_UIS7720			0x4064
+ /* Luat Air72*U series based on UNISOC UIS8910 uses UNISOC's vendor ID */
+ #define LUAT_PRODUCT_AIR720U			0x4e00
++/* TDTech MH5000-82M (UNISOC IVY510) release firmware, one PID per USB mode */
++#define TDTECH_PRODUCT_MH5000_82M_RNDIS		0x4056
++#define TDTECH_PRODUCT_MH5000_82M_ECM		0x4057
++#define TDTECH_PRODUCT_MH5000_82M_NCM		0x4058
++#define TDTECH_MH5000_82M_AT_INTERFACE		2
+ 
+ /* Device flags */
+ 
+@@ -2558,6 +2563,17 @@
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, TOZED_PRODUCT_LT70C, 0xff, 0, 0) },
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, UNISOC_PRODUCT_UIS7720, 0xff, 0, 0) },
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, LUAT_PRODUCT_AIR720U, 0xff, 0, 0) },
++	/*
++	 * TDTech MH5000-82M: interface 2 is the AT port and interfaces 3-6 are
++	 * DIAG/LOG/MODEM/Common AT.  Reserve the latter so only the AT port
++	 * gets a ttyUSB node, which is what qmodem expects.
++	 */
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_RNDIS, 0xff),
++	  .driver_info = RSVD(3) | RSVD(4) | RSVD(5) | RSVD(6) },
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_ECM, 0xff),
++	  .driver_info = RSVD(3) | RSVD(4) | RSVD(5) | RSVD(6) },
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_NCM, 0xff),
++	  .driver_info = RSVD(3) | RSVD(4) | RSVD(5) | RSVD(6) },
+ 	{ USB_DEVICE_INTERFACE_CLASS(0x1bbb, 0x0530, 0xff),			/* TCL IK512 MBIM */
+ 	  .driver_info = NCTRL(1) },
+ 	{ USB_DEVICE_INTERFACE_CLASS(0x1bbb, 0x0640, 0xff),			/* TCL IK512 ECM */
+@@ -2612,6 +2628,16 @@
+ 	return device_flags & RSVD(ifnum);
+ }
+ 
++static bool option_is_tdtech_mh5000_82m(const struct usb_device *udev)
++{
++	u16 product = le16_to_cpu(udev->descriptor.idProduct);
++
++	return le16_to_cpu(udev->descriptor.idVendor) == UNISOC_VENDOR_ID &&
++	       (product == TDTECH_PRODUCT_MH5000_82M_RNDIS ||
++	        product == TDTECH_PRODUCT_MH5000_82M_ECM ||
++	        product == TDTECH_PRODUCT_MH5000_82M_NCM);
++}
++
+ static int option_probe(struct usb_serial *serial,
+ 			const struct usb_device_id *id)
+ {
+@@ -2624,6 +2650,17 @@
+ 		return -ENODEV;
+ 
+ 	/*
++	 * Only interface 2 is the AT port on the TDTech MH5000-82M.  The
++	 * RSVD() flags below cover the static IDs; repeat the check here
++	 * because a wildcard dynamic ID added through new_id (qmodem does
++	 * this for VID:PID entries with option_driver=1) has driver_info 0
++	 * and would otherwise bind DIAG/LOG/MODEM/Common AT as well.
++	 */
++	if (option_is_tdtech_mh5000_82m(serial->dev) &&
++	    iface_desc->bInterfaceNumber != TDTECH_MH5000_82M_AT_INTERFACE)
++		return -ENODEV;
++
++	/*
+ 	 * Don't bind reserved interfaces (like network ones) which often have
+ 	 * the same class/subclass/protocol as the serial interfaces.  Look at
+ 	 * the Windows driver .INF files for reserved interface numbers.
