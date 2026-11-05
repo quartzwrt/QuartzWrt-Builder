@@ -68,13 +68,14 @@ scripts/gen-signing-key.sh
 # ③ 本地构建：注入密钥（QUARTZ_SIGNING_DIR）+ 构建标识 + 构建后签名校验（步骤 5c/10c 自动）
 QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
 
-# ④ 发布 feed + OTA 清单到目录（多架构 + 自动生成软件源页面；再整体同步到托管：NAS/R2/静态主机）
-scripts/publish-feed-all.sh --base-dir ../build/immortalwrt --dest ../feed-out
-#    直接推到 NAS（静态托管，-av --delete；目标须为专用目录）：
-#    scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out \
-#      --rsync user@nas:/volume1/web/quartzwrt
-# ⑤ 发布后自检（#41 阶段 1 翻转前置：可达性/索引签名/OTA 验签/抽查包）
-scripts/check-feed-live.sh http://<nas-ip>/quartzwrt
+# ④ 发布 feed + OTA 清单到目录（多架构 + 自动生成软件源页面）
+scripts/publish-feed-all.sh --base-dir ../build/immortalwrt --dest ../release-out/<tag>/feed
+#    当前线上源 = Cloudflare R2；用独立仓库 QuartzWrt-Web 上传：
+#    (cd ../QuartzWrt-Web && bash scripts/upload-feed.sh ../release-out/<tag>/feed)
+#    NAS 仅作备用/内网镜像时才用 --rsync（目标须为专用目录）：
+#    scripts/publish-feed.sh ... --rsync user@nas:/path/quartz-feed
+# ⑤ 发布后自检（R2：cd ../QuartzWrt-Web && bash scripts/verify.sh）
+scripts/check-feed-live.sh https://sources.quartzwrt.org/quartz-feed
 # ⑥ 端到端演练（独立 QEMU：包升级链路 + 固件 OTA 链路，含异钥反例）
 scripts/ota-drill.sh            # 证据落 ../vm/ota-drill/
 ```
@@ -82,10 +83,12 @@ scripts/ota-drill.sh            # 证据落 ../vm/ota-drill/
 # ⑥ 本地构建 → GitHub Release（发布路径；本地与 CI 同一把签名密钥，产物互认）
 QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/release-local.sh --tag v0.1.0 --build
 #    资产：镜像/manifest/sha256sums/profiles.json/OTA 清单 + feed 快照 tar.gz；--dry-run 可先演练
-#    同时发布 feed 到 NAS：... --publish-feed --rsync user@nas:/path/quartz-feed
+#    当前线上源（R2）：cd ../QuartzWrt-Web && bash scripts/upload-feed.sh ../release-out/<tag>/feed
+#    NAS 备用/内网镜像：... --publish-feed --rsync user@nas:/path/quartz-feed
 
-CI：`gh workflow run build.yml -f publish=yes`（需签名 Secrets；托管凭据 `PUBLISH_S3_*` 可选，
-未配置时 feed 树随 artifact 留档）。锁定自动检查/开 PR：`.github/workflows/bump.yml`（每周一 + 手动）。
+CI：`gh workflow run build.yml -f publish=yes`（需签名 Secrets；CI 的 `PUBLISH_S3_*` 仅用于 CI 发布通道，
+未配置时 feed 树随 artifact 留档）。**本地线上发布走 `QuartzWrt-Web/scripts/upload-feed.sh`（Cloudflare R2）。**
+锁定自动检查/开 PR：`.github/workflows/bump.yml`（每周一 + 手动）。
 本地与 CI 的一致性（签名/版本/可复现构建）见 `docs/SIGNING-OTA.md` §11。
 
 ## 基座升级 / 追随新版

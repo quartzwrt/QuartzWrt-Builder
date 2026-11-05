@@ -97,16 +97,24 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
 
 ### 3.2 托管与同步
 
-**托管形态（2026-10-14 用户决定：自建 NAS 为主）**：发布目录是**纯静态目录树**（根即 URL 根），
-任何静态 Web 服务器都能承载——NAS（群晖/威联通/自建 nginx/caddy）是首选；Cloudflare R2
-（S3 兼容）保留为"需要公网/跨地域"时的备选（阶段 2 全量镜像也用它更合适）。
+**托管形态（2026-10 迁移：Cloudflare R2 为当前线上源）**：发布目录是**纯静态目录树**（根即 URL 根），
+当前由 Cloudflare R2 桶 `quartz-feed` 直出（自定义域 `sources.quartzwrt.org`，不经过 Worker），
+上传工具在独立仓库 `QuartzWrt-Web/scripts/upload-feed.sh`（rclone S3 兼容 + wrangler 目录索引）。
+NAS 静态站点保留为历史/内网备用；Cloudflare R2 承担公网与跨地域访问，`apk` 请求不占 Worker 配额。
 
-**当前线上入口（2026-10-15）**：`https://sources.quartzwrt.org/quartz-feed`（隧道 +
-Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；NAS 内网直连 `<NAS 内网地址>/quartz-feed`
-同内容，备用——具体地址、站点根路径属维护者私有记录，**不入库/不写文档**）。
+**当前线上入口（2026-11-05）**：`https://sources.quartzwrt.org/quartz-feed`
+（R2 自定义域；`apk-tools` / 浏览器 UA 正常，默认 curl UA 可能被 Cloudflare 挑战成 403）。
 站点根 `/` 展示**软件源页面**（见 §12）。
 
-**NAS 托管要点（实测/约定）**：
+**Cloudflare R2 发布（当前）**：
+
+- **凭据**：`~/.config/quartzwrt/cloudflare.env`（`CLOUDFLARE_API_TOKEN` + `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`，0600，不入库）。
+- **上传**：`cd QuartzWrt-Web && bash scripts/upload-feed.sh <feed 目录>`；脚本用 `rclone sync` 整目录替换 `r2:quartz-feed/quartz-feed`，并为 `*.apk`/镜像/快照设置长缓存、为目录生成 `index.html` 对象。
+- **自检**：`cd QuartzWrt-Web && bash scripts/verify.sh`（官网/API/三架构索引/三目标 OTA/Builder 签名复核）；或 Builder `scripts/check-feed-live.sh https://sources.quartzwrt.org/quartz-feed`。
+- **缓存**：`configure-cache.sh` 配置 Cache Rules；发布后必要时 `purge-cache.sh`。
+- **历史**：2026-10-15 首次上线为 NAS + 隧道；2026-10 迁移 R2 后，NAS 目录不再是线上源。
+
+**NAS 托管要点（历史/备用，2026-10-15 首次上线）**：
 
 - **URL 必须是设备可达的地址**：LAN 内用 NAS 的 LAN IP 或内网域名（如
   `http://192.168.1.10/quartzwrt`），不要用只在维护机可解析的名字；带路径前缀没问题
@@ -131,15 +139,15 @@ Let's Encrypt 有效证书，**LAN 与远程设备统一走它**；NAS 内网直
   OTA 清单验签 / 抽查包可取）——**这就是 #41 阶段 1 的翻转前置检查**。
 
 ```bash
-# 一次性：本地构建（注入稳定密钥）→ 发布到 NAS（rsync 直推）
+# NAS 备用/内网镜像（当前线上源是 R2，见上；rsync 直推）
 QUARTZ_SIGNING_DIR=~/.quartz-signing scripts/build-local.sh
 scripts/publish-feed.sh --base-dir ../build/immortalwrt --dest ../feed-out \
   --rsync user@nas:/volume1/web/quartzwrt
 scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（全绿再翻转）
 ```
 
-**Cloudflare R2 / S3 兼容通道**：CI `publish=yes` → `aws s3 sync`（Secrets：`PUBLISH_S3_ENDPOINT`/
-`PUBLISH_S3_BUCKET`/`PUBLISH_S3_ACCESS_KEY_ID`/`PUBLISH_S3_SECRET_ACCESS_KEY`；未配置时只留 artifact）。
+**Cloudflare R2 / S3 兼容通道**：**当前线上发布走本地 `QuartzWrt-Web/scripts/upload-feed.sh`（rclone S3 API）**；
+CI `publish=yes` 的 `aws s3 sync` 通道保留（Secrets：`PUBLISH_S3_ENDPOINT`/`PUBLISH_S3_BUCKET`/`PUBLISH_S3_ACCESS_KEY_ID`/`PUBLISH_S3_SECRET_ACCESS_KEY`；未配置时只留 artifact）。
 
 ---
 
@@ -283,7 +291,9 @@ scripts/check-feed-live.sh http://192.168.1.10/quartzwrt     # 前置检查（�
 
 ---
 
-### 9.3 NAS 托管上线 + 阶段 1 翻转（2026-10-15）
+### 9.3 NAS 托管上线 + 阶段 1 翻转（2026-10-15；线上已迁 R2）
+
+> **2026-10 迁移**：线上源已改由 Cloudflare R2 提供（见 §3.2 与 `QuartzWrt-Web/README.md`）；本节 NAS 记录保留为历史，`--rsync` 仅用于 NAS 备用/内网镜像。
 
 - **环境**：自建 NAS 上的容器化静态站点（内网 + 隧道可达）；具体地址、站点根路径与
   NAS 侧软件栈属**维护者私有记录，不入库**。**NAS 系统管理 UI 与本站各占不同端口，勿混淆。**
@@ -517,7 +527,7 @@ docker 版设备走 OTA 会变成标准版（发行说明已注明）；「按�
 
 ## 10. 开放事项
 
-- 阶段 1 已执行（NAS，2026-10-15，见 §9.3）；R2/S3 Secrets 仅在选择公网托管/阶段 2 时才需要。
+- 阶段 1 已执行（2026-10-15 首次 NAS 上线；2026-10 已迁移 Cloudflare R2，见 §3.2）；R2 凭据在 `~/.config/quartzwrt/cloudflare.env`，CI 的 S3 Secrets 仅用于 CI 发布通道。
 - 发布后需在干净设备上复验一次"`apk update` 验签通过 + `apk upgrade` 升级"（演练已用
   本地 HTTP 源证明机制，公网 HTTPS 源属同类）。
 - 阶段 2 全量镜像的同步管道（增量/缓存/时效监控）尚未实现。
