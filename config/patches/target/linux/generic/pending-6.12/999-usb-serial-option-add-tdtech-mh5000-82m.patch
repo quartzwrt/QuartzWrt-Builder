@@ -1,0 +1,30 @@
+--- a/drivers/usb/serial/option.c
++++ b/drivers/usb/serial/option.c
+@@ -627,6 +627,10 @@
+ #define UNISOC_PRODUCT_UIS7720			0x4064
+ /* Luat Air72*U series based on UNISOC UIS8910 uses UNISOC's vendor ID */
+ #define LUAT_PRODUCT_AIR720U			0x4e00
++/* TDTech MH5000-82M (UNISOC IVY510) release firmware, one PID per USB mode */
++#define TDTECH_PRODUCT_MH5000_82M_RNDIS		0x4056
++#define TDTECH_PRODUCT_MH5000_82M_ECM		0x4057
++#define TDTECH_PRODUCT_MH5000_82M_NCM		0x4058
+ 
+ /* Device flags */
+ 
+@@ -2558,6 +2562,16 @@
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, TOZED_PRODUCT_LT70C, 0xff, 0, 0) },
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, UNISOC_PRODUCT_UIS7720, 0xff, 0, 0) },
+ 	{ USB_DEVICE_AND_INTERFACE_INFO(UNISOC_VENDOR_ID, LUAT_PRODUCT_AIR720U, 0xff, 0, 0) },
++	/*
++	 * TDTech MH5000-82M: bind all vendor-specific interfaces 2-6
++	 * (AT/DIAG/LOG/MODEM/Common AT), matching the stock ImmortalWrt /
++	 * qmodem dynamic new_id behavior on Photonicat.  qmodem's port rule
++	 * selects interface 2 for the AT port, so the extra ttyUSB nodes
++	 * are harmless.
++	 */
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_RNDIS, 0xff) },
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_ECM, 0xff) },
++	{ USB_DEVICE_INTERFACE_CLASS(UNISOC_VENDOR_ID, TDTECH_PRODUCT_MH5000_82M_NCM, 0xff) },
+ 	{ USB_DEVICE_INTERFACE_CLASS(0x1bbb, 0x0530, 0xff),			/* TCL IK512 MBIM */
+ 	  .driver_info = NCTRL(1) },
+ 	{ USB_DEVICE_INTERFACE_CLASS(0x1bbb, 0x0640, 0xff),			/* TCL IK512 ECM */

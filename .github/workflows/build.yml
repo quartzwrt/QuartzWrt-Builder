@@ -258,6 +258,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "目标 $TARGET（架构 $ARCH）；模式 $kind${dev:+（适配层 $dev）}"
 
+      - name: Apply common patches (通用补丁层)
+        run: bash scripts/apply-common.sh "${{ github.workspace }}/immortalwrt"
+
       - name: Apply device adaptation (设备适配层)
         if: steps.tgt.outputs.device != ''
         run: bash scripts/apply-device.sh "${{ github.workspace }}/immortalwrt" "${{ steps.tgt.outputs.device }}"

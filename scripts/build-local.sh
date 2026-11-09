@@ -8,7 +8,7 @@
 #
 # CI 是权威构建与发布通道；本脚本产物仅用于本地调试，禁止作为发布件分发。
 # 与 CI 的步骤必须保持一致，任一侧变更需同步另一侧（docs/TDD.md §7.4）。
-# 公共步骤（设备适配应用、manifest 校验）已抽为 scripts/{apply-device,check-manifest}.sh，
+# 公共步骤（通用补丁应用、设备适配应用、manifest 校验）已抽为 scripts/{apply-common,apply-device,check-manifest}.sh，
 # 两侧共用，避免漂移。
 #
 # 用法:
@@ -182,6 +182,10 @@ done
 step "同名包检查"
 bash "$BUILDER_DIR/scripts/check-duplicate-packages.sh" "$BASE_DIR/feeds"
 
+# 5a. 通用补丁层（所有目标/设备）：config/patches → 基座树（docs/TDD.md §4.6.1）
+step "应用通用补丁层（config/patches）"
+bash "$BUILDER_DIR/scripts/apply-common.sh" "$BASE_DIR"
+
 # 5b. 设备适配层（可选）：基座补丁 + files overlay（docs/TDD.md §4.6）
 if [ -n "$DEVICE" ]; then
   step "应用设备适配层：$DEVICE"
@@ -341,9 +345,11 @@ build_variant() {
   # 10c. 签名一致性校验（WP-9，docs/SIGNING-OTA.md）：feed 索引签名 key id /
   #      镜像内公钥载荷 / quartz-defaults 的 feed 列表与 OTA 件——发布构建的护栏。
   step "变体 $vlabel：签名一致性校验（WP-9）"
-  local arch_pkgs
+  local arch_pkgs verify_targets
   arch_pkgs="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\?\([^"]*\)"\?$/\1/p' "$BASE_DIR/.config" | head -1)"
-  bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${arch_pkgs:-x86_64}"
+  verify_targets="x86/64"
+  [ -n "$DEVICE" ] && verify_targets="$DEVICE_TARGET/$DEVICE_SUBTARGET"
+  bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${arch_pkgs:-x86_64}" --targets "$verify_targets"
 
   # 11. 产物收集（与 CI Collect artifacts 一致；同样限定本次目标域；docker 变体改名）
   step "变体 $vlabel：收集产物 → $art_dir"

@@ -114,12 +114,16 @@ feed，且在设备预装层预装（`luci-app-qmodem-next` + Vendor QMI 驱动�
 
 ### TDTech MH5000-82M（2026-10-31）
 
-同一内核补丁已投放到
-`files/target/linux/rockchip/patches-6.12/999-usb-serial-option-add-tdtech-mh5000-82m.patch`：
+同一内核补丁已放到**全局通用层**
+`config/patches/target/linux/generic/pending-6.12/999-usb-serial-option-add-tdtech-mh5000-82m.patch`，
+由 `scripts/apply-common.sh` 在 build-local/CI 中无条件投放；`generic/pending-6.12`
+对所有 target（x86_64 / mediatek / rockchip / …）生效，不再在设备层单独存放。
 给 `drivers/usb/serial/option.c` 补 `1782:4056/4057/4058`（RNDIS/ECM/NCM）三个
-release PID，并保留 interface 3–6（DIAG/LOG/MODEM/Common AT），只让 interface 2
-生成 `/dev/ttyUSB0` AT 口。qmodem 自带 `mh5000-82m` profile 与端口规则，开机/
-热插拔自动识别，无需手工指定 tty。接口布局、构建注意事项与真机验证命令详见
+release PID，interface 2–6（AT/DIAG/LOG/MODEM/Common AT）全部绑定为
+ttyUSB0–4；qmodem 端口规则仍选 interface 2 的 ttyUSB0 作为 AT 口。qmodem 自带
+`mh5000-82m` profile 与端口规则，开机/热插拔自动识别，无需手工指定 tty。
+（2026-11-09 起去掉 `RSVD(3..6)` 与 probe 兜底，按 Photonicat 原生 ImmortalWrt
+的全绑定行为对齐。）接口布局、构建注意事项与真机验证命令详见
 `devices/hiveton_h5000m/README.md` 的「MH5000-82M 5G 模组适配」章节。
 
 ## Web 终端（ttyd / luci-app-ttyd，2026-11-01）
