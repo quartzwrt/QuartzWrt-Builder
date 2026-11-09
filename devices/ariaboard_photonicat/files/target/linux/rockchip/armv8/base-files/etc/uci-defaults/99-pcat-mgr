@@ -1,0 +1,23 @@
+#!/bin/sh
+# Ariaboard Photonicat 电池默认配置（设备层）
+#
+# pcat-mgr 在 /dev/ttyS4 上与 PMU MCU 通信，启动时关闭板载看门狗，并通过 FUSE
+# 把电池/充电器挂到 /sys/class/power_supply/pcat-{battery,charger}；
+# luci-mod-battstatus 的 rpcd 直接读这两个目录。
+#
+# OCV 表取自基座 DTS（rk3568-photonicat.dts 的 simple-battery，单位 mV）。
+# AutoShutdownVoltage 不写，沿用 pcat-mgr 上游默认 3200mV；需要更保守可按
+# DTS 的 voltage-min-design（3400mV）在 /etc/pcat-mgr.json 里调高。
+
+[ -x /etc/init.d/pcat-mgr ] && /etc/init.d/pcat-mgr enable
+
+if [ ! -e /etc/pcat-mgr.json ]; then
+	cat > /etc/pcat-mgr.json <<'EOF'
+{
+  "BatteryChargeTable": [4100, 4040, 3980, 3920, 3870, 3820, 3790, 3770, 3740, 3680, 3450],
+  "BatteryDischargeTable": [4100, 4040, 3980, 3920, 3870, 3820, 3790, 3770, 3740, 3680, 3450]
+}
+EOF
+fi
+
+exit 0

@@ -239,6 +239,18 @@ devices/<设备名>/
 *   **设备构建验收**（三合一，经 `scripts/check-manifest.sh` 与 CI 步骤共用）：公共 manifest 断言
     （quartz 五关键包在列 + docker 反向断言）+ 设备断言（`device.env` 的 `DEVICE_MANIFEST_PACKAGES`）
     + 成品镜像存在性（`DEVICE_IMAGE_GLOB`，如 `*erya_fnet-3399*squashfs-sysupgrade.img.gz`）。
+#### 4.6.1 通用补丁层（config/patches/，2026-11-09 立）
+
+跨设备/跨目标的内核补丁**不复制到每个 `devices/`**，统一放 `config/patches/`，路径镜像基座树：
+
+```text
+config/patches/target/linux/generic/pending-6.12/999-xxx.patch
+```
+
+由 `scripts/apply-common.sh` 在 build-local 与 CI 中**无条件**投放到基座树（先于设备层）。
+`generic/pending-6.12` 由 OpenWrt 应用到所有 target（x86_64 / mediatek / rockchip / …），
+因此这里的补丁对所有设备构建生效。设备层只保留机型专属补丁/文件；同一补丁不得在设备层重复。
+
 *   **硬件验收边界**：本层只保证"构建侧适配"（设备被识别、U-Boot/内核 DTB/镜像正确产出）；
     真机刷写与首启验收由设备侧流程完成（x86 的 QEMU 预览台不适用于 ARM 设备镜像）。
 *   **当前设备**：
@@ -250,6 +262,14 @@ devices/<设备名>/
         基座原生支持、无需厂商补丁；完整 `quartz-defaults` + qmodem 5G 栈 + fancontrol
         保守曲线，`std`/`docker` 双变体；产物为 `sysupgrade.bin`。设备细节见
         `devices/hiveton_h5000m/README.md`。
+    *   `ariaboard_photonicat`（Ariaboard Photonicat，光影猫一代，RK3568，rockchip/armv8）。
+        基座原生支持、无厂商补丁；板载 QCA9377 完全沿用 25.12 官方 profile 的通用
+        ath10k 驱动/固件，外接 USB/PCIe WiFi 驱动保留公共 `drivers.config` 层；
+        电池由 `pcat-mgr` + `kmod-fuse` + `luci-mod-battstatus` 提供，设备层
+        uci-defaults 写 OCV 表并启用服务；daemon `battery` 节（契约 §3.10）供
+        Dashboard/App 电池卡；`std`/`docker` 双变体。镜像匹配式
+        `*ariaboard_photonicat*squashfs-sysupgrade.img.gz`。设备细节见
+        `devices/ariaboard_photonicat/README.md`。
 
 ### 4.7 受控 Fork 规范（2026-10-14 立，用户拍板）
 
@@ -338,7 +358,7 @@ devices/<设备名>/
 2.  **Feeds Inject**: 在基座默认 `feeds.conf` **末尾追加** `quartz` 与 `thirdparty` 两行（保留基座 packages/luci 等 feed，不得整体覆写，否则 luci-base 等基础包缺失；锁定 commit，见 §4.2）。
 3.  **Update & Install**: 执行 `./scripts/feeds update -a && ./scripts/feeds install -a`。
 4.  **Duplicate Check**: 同名包 / 基座遮蔽扫描（含基座 feed，见 §4.5），发现冲突即失败。
-5.  **Device Apply**: 设备适配层应用（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6）。
+5.  **Common/Device Apply**: 通用补丁层（`scripts/apply-common.sh`，所有目标）→ 设备适配层（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6/§4.6.1）。
 6.  **Config & Build**: 加载 `.config`（设备构建用 `devices/<名>/seed.config`）-> `make defconfig` -> `make -j$(nproc)`。
 7.  **Manifest Verify**: 公共断言（= `quartz-defaults` DEPENDS 全清单在列 + docker 反向断言）+ 设备断言（`scripts/check-manifest.sh`）+ 设备成品镜像存在性（§4.6）。
 8.  **Sign & Release**: 构建前注入稳定签名密钥（§7.3：Secrets → 构建树），构建后 `scripts/verify-signing.sh` 强校验（索引签名 key id / 公钥载荷 / feed 列表）；`publish=yes` 时经 `scripts/publish-feed.sh` 整理 feed + OTA 清单并同步到托管（S3 兼容，如 Cloudflare R2）。打包上传至 GitHub Releases。
@@ -360,7 +380,7 @@ devices/<设备名>/
 
 CI 与本地构建分工：**CI 覆盖干净环境可重现性与权威验收**，**本地覆盖快速迭代与发布**（`scripts/release-local.sh`：构建 → 签名硬门禁 → 打包 → `gh release create`）；两者步骤与门禁保持一致（同步义务见下），产物互认（同锁定、同密钥——§7.1）。
 
-*   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
+*   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → 通用补丁层应用 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
 *   **镜像格式与变体（2026-10-16 用户指令）**：**只出 squashfs 镜像**（`config/common.config` 关闭 `CONFIG_TARGET_ROOTFS_EXT4FS`，ext4 系列不再生成）；固件分**两个变体**——`std`（标准版）与 `docker`（预装 docker 栈，变体层 `config/preinstall/docker.config` + `docker.files` 配方）。`--variants std,docker`（默认两个，构建顺序固定 **docker 先、std 后**，构建树停在标准版）；docker 产物落 `<产物目录>-docker`、文件名带 `-docker` 标记（插在 `squashfs-`/`.manifest`/`.buildinfo` 标记之前，保持既有 glob 口径）。CI `build.yml` 的 `docker` 输入同款（默认 both）；GitHub Release 两变体都发，**软件源/OTA 通道只发标准版**（`publish-feed.sh` 有 docker 变体护栏）。详见 Builder `docs/SIGNING-OTA.md` §14。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
 *   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk；另需 `zstd`）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。**WSL 额外注意**：须剔除 PATH 中的 Windows 条目（`/mnt/c/...`，含空格路径）——GNU find 的 `-execdir` 安全检查会因相对/含空格路径直接报错（实测触发于 rust host 包安装阶段）；`scripts/build-local.sh` 已内置 PATH 净化。

@@ -11,7 +11,9 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `config/base.env` | ImmortalWrt 基座锁定（分支 + 精确 commit） |
 | `config/feeds.conf.extra` | 双 Feed 定义（CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
 | `config/seed.config` | `.config` 构建种子（x86_64 默认目标，最小集） |
-| `devices/<设备名>/` | 设备适配层：基座补丁（`patches/`）+ 原样投放文件（`files/`）+ 设备种子（`seed.config`）+ 元数据（`device.env`）；当前含 `erya_fnet-3399`（RK3399） |
+| `config/patches/` | 全局通用补丁层：路径镜像基座树（如 `target/linux/generic/pending-6.12/`），对所有目标/设备生效（x86_64、mediatek、rockchip、未来机型） |
+| `scripts/apply-common.sh` | 通用补丁层应用（build-local 与 CI 共用：`config/patches/` → 基座树，幂等，带过期清理） |
+| `devices/<设备名>/` | 设备适配层：基座补丁（`patches/`）+ 原样投放文件（`files/`）+ 设备种子（`seed.config`）+ 元数据（`device.env`）；当前含 `erya_fnet-3399`（RK3399）、`hiveton_h5000m`（MT7987A）、`ariaboard_photonicat`（RK3568，光影猫一代） |
 | `scripts/build-local.sh` | 本地全量构建脚本（复刻 CI 步骤，产物落本地目录，见 docs/TDD.md §7.4）；`--device <名>` 切换设备目标 |
 | `scripts/apply-device.sh` | 设备适配层应用（build-local 与 CI 共用：复位→打补丁→投放 files） |
 | `scripts/check-manifest.sh` | manifest 校验（build-local 与 CI 共用：公共断言 + 设备断言） |
