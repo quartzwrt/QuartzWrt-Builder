@@ -178,6 +178,15 @@ for f in quartz thirdparty; do
   echo "feed $f @ $(git -C "$BASE_DIR/feeds/$f" rev-parse HEAD)"
 done
 
+# 4z. TDD 双副本一致性（维护者本机存在唯一权威副本 ~/newproject.md 时校验；CI 无该副本则跳过）
+if [ -f "$HOME/newproject.md" ]; then
+  if ! diff -q "$HOME/newproject.md" "$BUILDER_DIR/docs/TDD.md" >/dev/null; then
+    echo "ERROR: TDD 双副本不一致（\$HOME/newproject.md 与 docs/TDD.md）——先同步再构建" >&2
+    exit 1
+  fi
+  step "TDD 双副本一致（newproject.md == docs/TDD.md）"
+fi
+
 # 5. 双 Feed 同名包检查（docs/TDD.md §4.5）
 step "同名包检查"
 bash "$BUILDER_DIR/scripts/check-duplicate-packages.sh" "$BASE_DIR/feeds"
