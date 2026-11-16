@@ -11,5 +11,5 @@
 # 2026-11-01：quartz → 4d03a9e（quartz-defaults r5：默认主机名 quartzwrt；W2.13 主题优化随本地 main 一并入库）
 # 2026-11-02：quartz → cbd6c19（W2.14 宽屏内容轨 + 全站卡片化；quartz-daemon r12 修 bandix DNS 计数恒 0）
 # 2026-11-04：quartz → 0595d0d（W2.15 宽屏铺满：撤销 1400 内容轨；含 app-api r16 修复）；thirdparty → 53af1de（WP-7 Lucky/TTL/EasyTier + qmi_wwan_q MTU-RX）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^0595d0dca8bbe80a7c61c59a9423d46bd09f5c6b
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^8f6b5a3f2c0180f5a54060427c360183400d8095
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^53af1def4657bec217fca5334edb80ec5104d92e
