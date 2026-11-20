@@ -12,5 +12,6 @@
 # 2026-11-02：quartz → cbd6c19（W2.14 宽屏内容轨 + 全站卡片化；quartz-daemon r12 修 bandix DNS 计数恒 0）
 # 2026-11-04：quartz → 0595d0d（W2.15 宽屏铺满：撤销 1400 内容轨；含 app-api r16 修复）；thirdparty → 53af1de（WP-7 Lucky/TTL/EasyTier + qmi_wwan_q MTU-RX）
 # 2026-11-20：quartz → c145bc7（**WP-13 luci-app-usb-tether 手机 USB 共享上网**：安卓/iPhone USB 网卡作 DHCP WAN 备援，仅入软件源；VM e2e 29/29 + detect 误判修复；吸收 15602f7/8f6b5a3 收口轮提交）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^c145bc72e48cc1aa72e55f5ce961ed8cd04a98e7
+# 2026-11-21：quartz → 5d124e1（WP-13 真机反馈修复：保存处理器在 luci.js View 基类而非 form.Map.prototype——原 override 崩成永久转圈；基座 set 即落盘无 apply 语义，helper 内联 + 状态页自愈兜底；VM e2e 33/33）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^5d124e148563e740cf1da7b1c367539193bc9cc4
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^53af1def4657bec217fca5334edb80ec5104d92e
