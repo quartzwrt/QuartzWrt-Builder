@@ -2,17 +2,19 @@
 # QuartzWrt 种子装配与 Gate A（WP-12 预装分层）
 #
 # 用法:
-#   scripts/compose-seed.sh [--device <设备名>] [--docker] emit     > <基座树>/.config
-#   scripts/compose-seed.sh [--device <设备名>] [--docker] verify  <装配后的 .config>
+#   scripts/compose-seed.sh [--device <设备名>] emit     > <基座树>/.config
+#   scripts/compose-seed.sh [--device <设备名>] verify  <装配后的 .config>
 #
 # 装配顺序（同符号后者覆盖前者；覆盖明细打到 stderr）：
 #   config/common.config                       跨目标构建面/分发面
 #   config/seed.config  （或设备种子，见下）    目标层
 #   config/preinstall/drivers.config           通用驱动层
 #   config/preinstall/features.config          通用功能层
-#   config/preinstall/docker.config            docker 变体层（仅 --docker；2026-10-16）
 #   devices/<设备>/seed.config                 目标/设备层（仅 --device）
 #   devices/<设备>/preinstall.config           设备专用预装层（仅 --device）
+#
+# 固件形态（2026-11-21 用户指令）：只出标准版；docker 不再作为种子变体层，
+#   需要 docker 的设备安装软件源可选包 quartz-docker（meta，不预装）。
 #
 # 语义性注释行（2026-10-16 增）：片段里形如 `# CONFIG_X is not set` 的行**不是普通
 #   注释**，而是 Kconfig 的"显式关掉"写法——本脚本把它当语义行参与装配、覆盖与
@@ -35,12 +37,10 @@ set -euo pipefail
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DEVICE=""
-DOCKER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="${2:?--device 需要参数：设备名（devices/<设备名>/）}"; shift 2 ;;
     --device=*) DEVICE="${1#--device=}"; shift ;;
-    --docker) DOCKER=1; shift ;;
     emit|verify) MODE="$1"; shift ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) break ;;
@@ -61,9 +61,6 @@ else
   FILES+=("$BUILDER_DIR/config/seed.config")
 fi
 FILES+=("$BUILDER_DIR/config/preinstall/drivers.config" "$BUILDER_DIR/config/preinstall/features.config")
-if [ -n "$DOCKER" ]; then
-  FILES+=("$BUILDER_DIR/config/preinstall/docker.config")
-fi
 if [ -n "$DEVICE" ]; then
   FILES+=("$DEVICE_DIR/preinstall.config")
 fi

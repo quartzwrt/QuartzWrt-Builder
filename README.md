@@ -124,17 +124,15 @@ gh workflow run build.yml -f device=erya_fnet-3399
 ## 本地构建（开发迭代）
 
 - **全量本地构建**：`scripts/build-local.sh`（复刻 CI 步骤，见 docs/TDD.md §7.4），产物落在本地目录，用于快速迭代验证；正式产物仍以 CI 为准。
-- **变体与镜像格式（2026-10-16 用户指令）**：
+- **镜像格式（2026-10-16 / 2026-11-21 用户指令）**：
   - **只出 squashfs 镜像**（`config/common.config` 关闭 `CONFIG_TARGET_ROOTFS_EXT4FS`；ext4 系列不再生成；VM 预览台用 `*-squashfs-combined.img.gz`）。
-  - **两个变体**：`--variants std,docker`（默认两个）——`std` 标准版、`docker` 预装 docker 栈
-    （`config/preinstall/docker.config` + `docker.files` 的 nftables 配方，见 docs/SIGNING-OTA.md §14）。
-    构建顺序固定 **docker 先、std 后**（构建树停在标准版）；产物分别落在
-    `artifacts-local[ /<设备>]` 与 `…-docker`，docker 文件名带 `-docker` 标记。
-  - **Docker 数据目录（H5000M / FNet3399）**：squashfs+overlay 根分区上，默认
+  - **只出标准版**：docker 不再作为构建变体（2026-11-21）。需要 docker 的设备在设备上
+    安装软件源可选包 `quartz-docker`（`meta/quartz-docker`：docker/dockerd/compose/
+    dockerman + nftables 后端配方，**不预装**）。产物落在 `artifacts-local[ /<设备>]`。
+  - **Docker 数据目录（H5000M / FNet3399，安装 `quartz-docker` 后）**：squashfs+overlay 根分区上，默认
     `/opt/docker` 会触发 overlay-on-overlay（`docker run` 报 `invalid argument`）。
     请在 LuCI → 服务 → Docker 重新选择数据目录到非 overlay 文件系统，或在
     `/etc/docker/daemon.json` 设 `"storage-driver": "vfs"` 后重启 dockerd。
-  - 只要标准版（快速迭代）：`scripts/build-local.sh --variants std`。
 - **单包快速验证**（几分钟级）：
 
 ```bash

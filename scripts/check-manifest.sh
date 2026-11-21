@@ -7,9 +7,9 @@
 #          （非包符号——如 `*_INCLUDE_*` 之类的包构建选项——自动豁免：见下"豁免"）；
 #       ② quartz-defaults 的 DEPENDS 全清单（核心组件 + thirdparty 预装）从
 #          feeds/quartz/meta/quartz-defaults/Makefile 现读现断言（增删依赖无需改本脚本）。
-#   - docker 栈断言（变体相关，2026-10-16）：
-#       标准版（默认）→ **反向**：docker 栈必须不在列（2026-10-12 用户拍板移出预装）；
-#       docker 变体（--docker）→ **正向**：docker 栈必须在列（docker.config 层的效果）。
+#   - docker 栈断言（2026-11-21 起固定为**反向**）：
+#       本版只出标准版；docker 栈不得预装（2026-10-12 用户拍板）。需要 docker 的用户
+#       在设备上安装软件源可选包 quartz-docker（meta，运行时安装，不随镜像分发）。
 #   - 设备断言（可选）：devices/<设备名>/device.env 的 $DEVICE_MANIFEST_PACKAGES 在列。
 #     该清单**刻意比"选择"宽**（可含依赖闭包项与 DEVICE_PACKAGES 项）：上游闭包变化时
 #     设备构建即红，是设备级验收而非选择来源。
@@ -23,16 +23,7 @@
 set -euo pipefail
 
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOCKER=""
-_args=()
-for _a in "$@"; do
-  case "$_a" in
-    --docker) DOCKER=1 ;;
-    *) _args+=("$_a") ;;
-  esac
-done
-if [ "${#_args[@]}" -gt 0 ]; then set -- "${_args[@]}"; else set --; fi
-MANIFEST="${1:?用法: check-manifest.sh <manifest 文件> [设备名] [基座构建树] [--docker]}"
+MANIFEST="${1:?用法: check-manifest.sh <manifest 文件> [设备名] [基座构建树]}"
 DEVICE="${2:-}"
 BUILD_TREE="${3:-}"
 
@@ -57,7 +48,6 @@ check_pkg() {  # $1=包名 $2=来源说明
 # ── Gate B ①：装配后的种子层 =y 项 ───────────────────────────────────────────
 COMPOSE_ARGS=()
 [ -n "$DEVICE" ] && COMPOSE_ARGS=(--device "$DEVICE")
-[ -n "$DOCKER" ] && COMPOSE_ARGS+=(--docker)
 PACKAGEINFO="${BUILD_TREE:+$BUILD_TREE/tmp/.packageinfo}"
 composed="$(bash "$BUILDER_DIR/scripts/compose-seed.sh" ${COMPOSE_ARGS[@]+"${COMPOSE_ARGS[@]}"} emit 2>/dev/null)"
 echo "── Gate B：种子层 =y 项（装配派生）──"
@@ -84,22 +74,15 @@ else
   check_pkg quartz-defaults "元包本体"
 fi
 
-# ── docker 栈断言（变体相关，2026-10-16）────────────────────────────────────
-if [ -n "$DOCKER" ]; then
-  echo "── docker 变体：docker 栈必须在列 ──"
-  for p in dockerd docker containerd runc docker-compose luci-app-dockerman luci-lib-docker; do
-    check_pkg "$p" "docker 变体"
-  done
-else
-  for p in dockerd docker containerd runc luci-app-dockerman luci-lib-docker; do
-    if grep -q "^${p} " "$MANIFEST"; then
-      echo "FAIL: $p 出现在固件清单中（标准版不含 docker，2026-10-12 用户拍板；要 docker 请构建 --docker 变体）" >&2
-      fail=1
-    else
-      echo "OK(不在列): $p"
-    fi
-  done
-fi
+# ── docker 栈断言（2026-11-21 起固定反向：不预装；docker 走可选包 quartz-docker）──
+for p in dockerd docker containerd runc docker-compose luci-app-dockerman luci-lib-docker quartz-docker; do
+  if grep -q "^${p} " "$MANIFEST"; then
+    echo "FAIL: $p 出现在固件清单中（标准版不含 docker/可选包；要 docker 请在设备上安装 quartz-docker）" >&2
+    fail=1
+  else
+    echo "OK(不在列): $p"
+  fi
+done
 
 # ── 设备验收断言（可含闭包项与 DEVICE_PACKAGES 项；比"选择"宽是刻意的）────────
 if [ -n "$DEVICE" ]; then

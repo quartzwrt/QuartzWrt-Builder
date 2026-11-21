@@ -1,11 +1,11 @@
 # 💎 QuartzWrt 技术设计文档 (TDD)
 
-**文档版本**: v2.0.1（双 Feed 架构与第三方包集成规范合并版；2026-10-20 增补蜂窝/5G 定位）
+**文档版本**: v2.0.2（双 Feed 架构与第三方包集成规范合并版；2026-11-21 增补三层菜单与可选 docker 包）
 **项目代号**: Quartz (石英)
 **基座系统**: ImmortalWrt (OpenWrt 衍生版)
 **文档状态**: 已确认 (Approved)
 **适用范围**: QuartzWrt 固件构建、App 开发、第三方插件引入
-**最后更新**: 2026-10-20
+**最后更新**: 2026-11-21
 
 > **版本说明**：本文由《QuartzWrt 技术设计文档 v1.1.0》与《QuartzWrt 第三方软件包集成与管理规范 v1.0.0》合并而成，统一了两份文档的术语、修正了与 OpenWrt 构建机制不符的示例，并补充了 Feed 自锁定、运行时资源锁定、签名与 OTA 等章节。
 
@@ -124,11 +124,29 @@ endef
 
 > 注意：不要在 `DEPENDS` 续行中写注释（`\` 续行与 `#` 注释的组合容易吞掉下一行）。依赖来源在代码评审时人工核对。
 
+#### 3.2.1 三层 menuconfig 组织（2026-11-21 用户拍板）
+
+品牌的包选择面统一收敛到 `QuartzWrt` 分类下的三个子菜单（`CATEGORY:=QuartzWrt` + `SUBMENU`）：
+
+| 子菜单 | 内容 |
+| :-- | :-- |
+| `1. Base`（基础：系统/路由） | quartz-defaults、luci-theme-quartz、luci-app-quartz-config、luci-app-dashboard、quartz-daemon、quartz-app-api、quartz-runtime-resources、luci-app-tailscale、mosdns 套件、bandix 套件（含 quartz-bandix-bridge） |
+| `2. Advanced`（进阶：蜂窝/增值网络） | qmodem 主链（qmodem + luci-app-qmodem-next）、lucky、easytier、luci-app-ttl、Wi-Fi 驱动家族 meta（`quartz-wifi-{mt76,realtek,intel,qualcomm,aic8800}`）、可选包 `quartz-docker`（feed-only 单包编译，不进种子/镜像） |
+| `3. Device-Specific`（设备专属：LED/电池/风扇） | fancontrol + luci-app-fancontrol（设备层 pcat-mgr/battstatus 等仍由 `devices/` 承载） |
+
+机制：
+
+*   手写 Makefile 用 `CATEGORY:=QuartzWrt` + `SUBMENU:=…`；LuCI 包用 `LUCI_CATEGORY:=QuartzWrt` + `LUCI_SUBMENU_FORCED:=…`（基座 `feeds/luci/luci.mk` 的官方覆盖点）。
+*   thirdparty 镜像包的归组改动放 `QuartzWrt-ThirdParty/patches/<条目>/`，由 `sync-mirrors.sh` 在 rsync 之后应用；上游漂移导致补丁失败即硬失败，**禁止直接改镜像目录**（见 `docs/FORKS.md`）。
+*   Wi-Fi 驱动家族 meta 用 `Package/.../config` 内的 `depends on PACKAGE_<meta>` + `select PACKAGE_kmod-*` + `select DRIVER_11*_SUPPORT`：避免 meta `DEPENDS:=+kmod` 触发 `scripts/package-metadata.pl` 的依赖上提（能力符号无菜单入口 → 整组隐藏）。
+*   **仅呈现层**：发布构建的预装事实源仍是 WP-12 的种子片段（`config/preinstall/*` + `devices/*`）；菜单重组不改变任何符号名，Gate A/B 断言零影响。
+
 ### 3.3 Quartz UI 与 Dashboard 架构
 
 #### 架构拆分
 *   **`luci-theme-quartz`**：仅负责全局 CSS 变量、基础骨架、侧边栏。必须解决 Tailwind CSS 全局 reset 对原生 LuCI `cbi` 样式的污染问题（采用 PostCSS 命名空间或 `qz-` 前缀）。
 *   **`luci-app-dashboard`**：纯 JS 客户端渲染的单页应用 (SPA)，作为登录后的默认首页。
+*   **dashboard 主题门控（2026-11-21）**：`admin/dashboard` 由 `zzz-quartz-dashboard-gate.json` 按 `luci.main.mediaurlbase` 条件化——quartz 主题 → 本包 dashboard；vantage 主题 → `admin/dashboard-vantage`（`vantage/overview`，需装 luci-app-vantage）。切换主题时 `/etc/init.d/quartz-dashboard-gate`（procd `config.change` 触发器）清 `/tmp/luci-indexcache.*`，使菜单即时刷新。
 
 #### 数据聚合层 (`quartz-daemon`)
 为解决 LuCI 传统 Lua 模板并发请求导致的卡顿，引入独立的轻量级守护进程：
@@ -260,14 +278,14 @@ config/patches/target/linux/generic/pending-6.12/999-xxx.patch
         `devices/erya_fnet-3399/README.md`。
     *   `hiveton_h5000m`（Hiveton H5000M，MT7987A，mediatek/filogic，WiFi 7 + M.2 USB 5G）。
         基座原生支持、无需厂商补丁；完整 `quartz-defaults` + qmodem 5G 栈 + fancontrol
-        保守曲线，`std`/`docker` 双变体；产物为 `sysupgrade.bin`。设备细节见
+        保守曲线，标准版产物为 `sysupgrade.bin`。设备细节见
         `devices/hiveton_h5000m/README.md`。
     *   `ariaboard_photonicat`（Ariaboard Photonicat，光影猫一代，RK3568，rockchip/armv8）。
         基座原生支持、无厂商补丁；板载 QCA9377 完全沿用 25.12 官方 profile 的通用
         ath10k 驱动/固件，外接 USB/PCIe WiFi 驱动保留公共 `drivers.config` 层；
         电池由 `pcat-mgr` + `kmod-fuse` + `luci-mod-battstatus` 提供，设备层
         uci-defaults 写 OCV 表并启用服务；daemon `battery` 节（契约 §3.10）供
-        Dashboard/App 电池卡；`std`/`docker` 双变体。镜像匹配式
+        Dashboard/App 电池卡；标准版固件。镜像匹配式
         `*ariaboard_photonicat*squashfs-sysupgrade.img.gz`。设备细节见
         `devices/ariaboard_photonicat/README.md`。
 
@@ -381,7 +399,7 @@ config/patches/target/linux/generic/pending-6.12/999-xxx.patch
 CI 与本地构建分工：**CI 覆盖干净环境可重现性与权威验收**，**本地覆盖快速迭代与发布**（`scripts/release-local.sh`：构建 → 签名硬门禁 → 打包 → `gh release create`）；两者步骤与门禁保持一致（同步义务见下），产物互认（同锁定、同密钥——§7.1）。
 
 *   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → 通用补丁层应用 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
-*   **镜像格式与变体（2026-10-16 用户指令）**：**只出 squashfs 镜像**（`config/common.config` 关闭 `CONFIG_TARGET_ROOTFS_EXT4FS`，ext4 系列不再生成）；固件分**两个变体**——`std`（标准版）与 `docker`（预装 docker 栈，变体层 `config/preinstall/docker.config` + `docker.files` 配方）。`--variants std,docker`（默认两个，构建顺序固定 **docker 先、std 后**，构建树停在标准版）；docker 产物落 `<产物目录>-docker`、文件名带 `-docker` 标记（插在 `squashfs-`/`.manifest`/`.buildinfo` 标记之前，保持既有 glob 口径）。CI `build.yml` 的 `docker` 输入同款（默认 both）；GitHub Release 两变体都发，**软件源/OTA 通道只发标准版**（`publish-feed.sh` 有 docker 变体护栏）。详见 Builder `docs/SIGNING-OTA.md` §14。
+*   **镜像格式与 docker 可选包（2026-10-16 / 2026-11-21 用户指令）**：**只出 squashfs 镜像**（`config/common.config` 关闭 `CONFIG_TARGET_ROOTFS_EXT4FS`，ext4 系列不再生成）；**只出标准版**——docker 不再是构建变体（`build-local.sh`/`build.yml`/`compose-seed.sh`/`check-manifest.sh` 已去除变体分支）。需要 docker 的设备安装 `quartz` feed 的可选包 `quartz-docker`（meta：docker/dockerd/compose/dockerman + nftables 后端配方，不预装；`check-manifest.sh` 对其做反向断言）。**feed-only 编译**：该包不进种子/镜像，构建末尾以 `make package/feeds/quartz/quartz-docker/compile` + `make package/index` 编入软件源（单包编译不构建 docker 栈）。GitHub Release / 软件源 / OTA 全部只发标准版；`publish-feed.sh` 保留 `CONFIG_PACKAGE_dockerd=y` 自定义构建的拒绝护栏。详见 Builder `docs/SIGNING-OTA.md` §14。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
 *   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk；另需 `zstd`）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。**WSL 额外注意**：须剔除 PATH 中的 Windows 条目（`/mnt/c/...`，含空格路径）——GNU find 的 `-execdir` 安全检查会因相对/含空格路径直接报错（实测触发于 rust host 包安装阶段）；`scripts/build-local.sh` 已内置 PATH 净化。
 *   **同步义务**：CI workflow 与本地脚本的步骤必须保持一致，任一侧变更需同步另一侧。

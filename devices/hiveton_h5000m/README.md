@@ -8,12 +8,12 @@ MT7987A / WiFi 7 / 8GB eMMC 的 5G CPE。基座 ImmortalWrt 25.12 已原生支�
 ```sh
 QUARTZ_SIGNING_DIR=/home/nrxboat/.quartz-signing \
 QUARTZ_BUILD_ID=v0.2.0 \
-scripts/build-local.sh --device hiveton_h5000m --variants std,docker
+scripts/build-local.sh --device hiveton_h5000m
 ```
 
 - 目标：`mediatek/filogic`；镜像：`*hiveton_h5000m*sysupgrade.bin`
-- 根分区：`CONFIG_TARGET_ROOTFS_PARTSIZE=2048`（完整 Quartz + docker 变体）
-- 变体：`std` 与 `docker`（用户侧有改内存版本，docker 必须提供）
+- 根分区：`CONFIG_TARGET_ROOTFS_PARTSIZE=2048`（完整 Quartz 预装 + 余量）
+- 变体（2026-11-21）：只出标准版；需要 docker 时在设备上 `apk add quartz-docker`
 
 ## 预装口径
 

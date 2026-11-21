@@ -129,15 +129,6 @@ on:
         options:
           - 'no'
           - 'yes'
-      docker:
-        description: '固件变体（both = 标准版 + docker 版，2026-10-16 起默认；只出 squashfs 镜像）'
-        required: false
-        default: 'both'
-        type: choice
-        options:
-          - 'both'
-          - 'std'
-          - 'docker'
 
 env:
   TZ: Asia/Shanghai
@@ -299,7 +290,7 @@ jobs:
             "$BUILD_ID" "${BRANCH#openwrt-}" > files/etc/quartz-release
           cat files/etc/quartz-build-id files/etc/quartz-release
 
-      - name: Build firmware (变体循环：装配种子 → defconfig → Gate A → make → 校验 → 收集)
+      - name: Build firmware (标准版：装配种子 → defconfig → Gate A → make → 校验 → 收集)
         working-directory: immortalwrt
         run: |
           set -euo pipefail
@@ -308,56 +299,22 @@ jobs:
           board="${{ steps.tgt.outputs.board }}"; sub="${{ steps.tgt.outputs.subtarget }}"
           BIN="${{ steps.tgt.outputs.bin }}"
 
-          # 变体（2026-10-16 用户指令：固件分带/不带 docker 两版）：
-          #   both → docker,std；**固定 docker 先、std 后**——构建树/feed 发布口径停在标准版
-          #   （publish-feed.sh 有对应的 docker 变体护栏；OTA 清单只含标准版）。
-          case "${{ inputs.docker }}" in
-            both)   VARIANTS="docker std" ;;
-            std)    VARIANTS="std" ;;
-            docker) VARIANTS="docker" ;;
-            *) echo "FAIL: 未知 docker 输入：${{ inputs.docker }}" >&2; exit 1 ;;
-          esac
-          echo "变体：$VARIANTS"
-
-          # 变体文件名改写：-docker 插在 fs 类型/后缀标记之前，保持既有 glob 口径
-          # （*-squashfs-sysupgrade.img.gz / *.manifest / *.buildinfo 仍能命中 docker 版）。
-          variant_name() {  # $1=文件名 $2=变体
-            if [ "$2" = "std" ]; then printf '%s' "$1"; return; fi
-            printf '%s' "$1" | sed -E 's/-(squashfs-)/-docker-\1/; s/\.(manifest|buildinfo)$/-docker.\1/'
-          }
-          # docker 变体文件叠加（daemon.json + uci-defaults 配方）→ 构建树 TOPDIR/files；
-          # std 轮显式清理，防复用树串味（CI 每次全新检出，本地构建树才需要——逻辑一致）。
-          docker_files_apply() {  # $1=on|off
-            local rel
-            while IFS= read -r -d '' f; do
-              rel="${f#../config/preinstall/docker.files/}"
-              if [ "$1" = "on" ]; then
-                mkdir -p "files/$(dirname "$rel")"; cp -p "$f" "files/$rel"
-              else
-                rm -f "files/$rel"
-              fi
-            done < <(find ../config/preinstall/docker.files -type f -print0)
-            if [ "$1" = "off" ]; then rmdir files/etc/docker 2>/dev/null || true; fi
-          }
-
-          mkdir -p ../artifacts
-          for V in $VARIANTS; do
-            echo "::group::变体 $V"
-            COMPOSE_VARIANT=()
-            [ "$V" = "docker" ] && COMPOSE_VARIANT=(--docker)
+            # 2026-11-21 用户指令：不再构建 docker 变体，只出标准版（docker 为软件源可选包
+            # quartz-docker，用户在设备上运行时安装）。保留单次构建的 group 便于日志折叠。
+            mkdir -p ../artifacts
+            echo "::group::标准版构建"
 
             echo "--- 装配种子 + defconfig + Gate A"
             if [ "$KIND" = device ]; then
-              # WP-12 分层种子装配（common → 目标 → drivers → features →[docker]→ 设备 seed → 设备 preinstall）
-              bash ../scripts/compose-seed.sh --device "$DEV" ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} emit > .config
+              # WP-12 分层种子装配（common → 目标 → drivers → features → 设备 seed → 设备 preinstall）
+              bash ../scripts/compose-seed.sh --device "$DEV" emit > .config
             elif [ "$KIND" = default ]; then
-              bash ../scripts/compose-seed.sh ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} emit > .config
+              bash ../scripts/compose-seed.sh emit > .config
             else
               # 通用目标（multi/profile）：通用种子 + 按输入注入目标/设备选择
               # 注：通用路径刻意**不用**分层装配（seed-generic.config 是"任意目标"最小集，
-              # 不含 quartz 既有预装层语义），仅做同一份 Gate A 行级校验；docker 变体叠加 docker.config。
+              # 不含 quartz 既有预装层语义），仅做同一份 Gate A 行级校验。
               cp ../config/seed-generic.config .config
-              if [ "${#COMPOSE_VARIANT[@]}" -gt 0 ]; then cat ../config/preinstall/docker.config >> .config; fi
               {
                 echo "CONFIG_TARGET_${board}=y"
                 echo "CONFIG_TARGET_${board}_${sub}=y"
@@ -373,12 +330,11 @@ jobs:
             # Gate A（WP-12）：种子行必须原样保留在 defconfig 之后的 .config——
             # "符号不存在/依赖未满足被 Kconfig 静默丢弃"（构建零报错但镜像少东西）变硬失败。
             if [ "$KIND" = device ]; then
-              bash ../scripts/compose-seed.sh --device "$DEV" ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} verify .config
+              bash ../scripts/compose-seed.sh --device "$DEV" verify .config
             elif [ "$KIND" = default ]; then
-              bash ../scripts/compose-seed.sh ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"} verify .config
+              bash ../scripts/compose-seed.sh verify .config
             else
               SEED_FILES=(../config/seed-generic.config)
-              if [ "${#COMPOSE_VARIANT[@]}" -gt 0 ]; then SEED_FILES+=(../config/preinstall/docker.config); fi
               for sf in "${SEED_FILES[@]}"; do
                 while IFS= read -r l; do
                   case "$l" in ''|\#*) continue ;; esac
@@ -390,18 +346,24 @@ jobs:
             echo "--- 目标相关配置 ---"
             grep -E "^CONFIG_TARGET_${board}(_${sub})?(_DEVICE_[A-Za-z0-9_-]+)?=" .config | head -8
 
-            if [ "$V" = "docker" ]; then docker_files_apply on; else docker_files_apply off; fi
-
             echo "--- make -j$(nproc)（全量构建；首轮约 60–120 分钟）"
             make -j"$(nproc)" V=w
+
+            # feed-only 可选包：quartz-docker 不进镜像（未被种子选择），单独编译进
+            # 软件源供设备 apk add；随后重建并签名 feed 索引（单包编译不构建 docker 栈）。
+            if [ -d feeds/quartz/meta/quartz-docker ]; then
+              echo "--- Compile feed-only quartz-docker + rebuild indexes"
+              make package/feeds/quartz/quartz-docker/compile V=w
+              make package/index V=w
+            fi
 
             echo "--- Verify packages in manifest"
             manifest=$(find "$BIN" -name '*.manifest' | head -1)
             [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest" >&2; exit 1; }
             if [ "$KIND" = device ]; then
-              bash ../scripts/check-manifest.sh "$manifest" "$DEV" . ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"}
+              bash ../scripts/check-manifest.sh "$manifest" "$DEV" .
             elif [ "$KIND" = default ]; then
-              bash ../scripts/check-manifest.sh "$manifest" "" . ${COMPOSE_VARIANT[@]+"${COMPOSE_VARIANT[@]}"}
+              bash ../scripts/check-manifest.sh "$manifest" "" .
             else
               # 通用目标：无 quartz-defaults 预装断言（通用种子只带 quartz 核心）
               echo "OK(通用目标): $(wc -l < "$manifest") 个包；关键包检查："
@@ -430,21 +392,14 @@ jobs:
               echo "SKIP: 未配置签名密钥（开发构建）"
             fi
 
-            echo "--- Collect artifacts（变体改名；两变体共用 artifacts/）"
+            echo "--- Collect artifacts"
             find "$BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' -o -name '*.buildinfo' \
               -o -name 'sha256sums' -o -name 'profiles.json' \) -print0 | while IFS= read -r -d '' f; do
-              b="$(basename "$f")"
-              case "$b" in
-                *.img.gz|*sysupgrade*.bin|*.manifest|*.buildinfo)
-                  cp "$f" "../artifacts/$(variant_name "$b" "$V")" ;;
-                *)
-                  if [ "$V" = "std" ]; then cp "$f" ../artifacts/; fi ;;
-              esac
+              cp "$f" ../artifacts/
             done
-            if [ "$V" = "std" ]; then cp .config ../artifacts/dotconfig; else cp .config ../artifacts/dotconfig-docker; fi
+            cp .config ../artifacts/dotconfig
             ls ../artifacts | head -20
             echo "::endgroup::"
-          done
 
       - name: Stage feed / OTA publish tree (WP-9 发布整理)
         if: ${{ inputs.publish == 'yes' }}
@@ -482,9 +437,9 @@ jobs:
           path: artifacts/
           retention-days: 14
 
-      # tag 推送时发 Release：artifacts/ 内已含**两个变体**（标准版与 `-docker` 版；
-      # 变体循环收集时改名，见上一步），Release 资产与本地 release-local.sh 口径一致
-      # （只 squashfs、两变体；OTA 清单只含标准版，见 docs/SIGNING-OTA.md §12）。
+      # tag 推送时发 Release：artifacts/ 内为**标准版**产物（2026-11-21 起不再构建
+      # docker 变体；docker 为软件源可选包 quartz-docker），Release 资产与本地
+      # release-local.sh 口径一致（只 squashfs；OTA 清单只含标准版，见 SIGNING-OTA §12）。
       - name: Publish release (tag 推送时)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
