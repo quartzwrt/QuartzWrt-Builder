@@ -9,7 +9,7 @@
 #
 # 用法:
 #   scripts/check-feed-live.sh <托管根 URL> [--arch x86_64] [--board x86 --subtarget 64]
-#                              [--feeds quartz,thirdparty] [--pubkey PATH] [--ota-pub PATH]
+#                              [--feeds quartz,thirdparty,themes] [--pubkey PATH] [--ota-pub PATH]
 # 退出码: 0 全过（可翻转）；1 有失败项（勿翻转）
 #
 # 提示：URL 用设备可达的地址（LAN 内 NAS 用 LAN IP/域名；HTTPS 与 HTTP 均可，
@@ -22,7 +22,7 @@ BASE_URL="${BASE_URL%/}"   # 去尾斜杠（固件侧拼接约定：<根>/packag
 
 BUILDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ARCH="x86_64"; BOARD="x86"; SUBTARGET="64"
-FEEDS="quartz,thirdparty"
+FEEDS="quartz,thirdparty,themes"
 PUBKEY="${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/apk-public-key.pem}"
 OTA_PUB="${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/ota.pub}"
 
@@ -147,7 +147,7 @@ if [ "$FAIL" = 0 ]; then
 ✔ 该托管根满足 #41 阶段 1 翻转前置。翻转步骤：
   1) config/seed.config（x86）与 devices/<设备>/seed.config 设：
        CONFIG_QUARTZ_FEED_BASE_URL="$BASE_URL"
-     （CONFIG_FEED_{quartz,thirdparty} 保持 =m 不动）
+     （CONFIG_FEED_{quartz,thirdparty,themes} 保持 =m 不动）
   2) 重建固件（本地 scripts/build-local.sh 或手动 CI）
   3) 设备侧复核：apk update 无 UNTRUSTED、apk list -u 可见自有源
 EOF

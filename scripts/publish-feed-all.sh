@@ -17,7 +17,7 @@
 #     --no-devices-page 不生成"支持设备页"（devices/：基座全量目标/设备清单，menuconfig 式层级）
 #     --root-page      同步后把"站点根精简页"写到托管站点根 index.html（先备份为 index.html~；
 #                      站点根 = rsync 目标去掉最后一段，如 .../quartzwrt/quartz-feed → .../quartzwrt）
-#     --feeds LIST     传给 publish-feed.sh（默认 quartz,thirdparty）
+#     --feeds LIST     传给 publish-feed.sh（默认 quartz,thirdparty,themes）
 #
 # 退出码: 0 成功；1 失败（含"无任何可用架构对"）
 
@@ -31,7 +31,7 @@ RSYNC_DEST=""
 URL=""
 MAKE_PAGE=1
 MAKE_DEVICES=1
-FEEDS="quartz,thirdparty"
+FEEDS="quartz,thirdparty,themes"
 ROOT_PAGE=0
 
 while [ $# -gt 0 ]; do

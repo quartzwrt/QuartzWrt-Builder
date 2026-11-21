@@ -349,11 +349,21 @@ jobs:
             echo "--- make -j$(nproc)（全量构建；首轮约 60–120 分钟）"
             make -j"$(nproc)" V=w
 
-            # feed-only 可选包：quartz-docker 不进镜像（未被种子选择），单独编译进
-            # 软件源供设备 apk add；随后重建并签名 feed 索引（单包编译不构建 docker 栈）。
-            if [ -d feeds/quartz/meta/quartz-docker ]; then
-              echo "--- Compile feed-only quartz-docker + rebuild indexes"
-              make package/feeds/quartz/quartz-docker/compile V=w
+            # feed-only 可选包：不进镜像（未被种子选择），单独编译进软件源供设备
+            # apk add；清单见 config/feed-only.list。随后重建并签名 feed 索引。
+            if [ -f ../config/feed-only.list ]; then
+              echo "--- Compile feed-only packages + rebuild indexes"
+              while IFS= read -r p; do
+                case "$p" in ''|\#*) continue ;; esac
+                if [ -d "$p" ]; then
+                  echo "  - $p"
+                  # 直接进入包目录编译（避开顶层依赖图/工具链重打包）；
+                  # DEVELOPER=1：未在 .config 选中的包也生成 apk（LuCI 包 compile 默认为空操作）。
+                  make -C "$p" TOPDIR="$PWD" compile V=w DEVELOPER=1
+                else
+                  echo "  SKIP: $p（当前 feed 锁定不含该包）"
+                fi
+              done < ../config/feed-only.list
               make package/index V=w
             fi
 

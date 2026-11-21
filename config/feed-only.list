@@ -1,0 +1,12 @@
+# feed-only 可选包清单（WP-14）：构建进软件源（bin/packages），**不进入镜像**。
+# 每行一个 make 目标（package/feeds/<feed>/<pkg>）；当前 feed 锁定不含该包时自动跳过。
+# 由 scripts/build-local.sh 第 9 步与 CI build.yml 同款消费，末尾统一 `make package/index`。
+#
+# 说明：这些包未被种子选择；单包编译只产出 apk（及其轻量依赖），不会改变固件内容。
+package/feeds/quartz/quartz-docker
+package/feeds/themes/luci-theme-vantage
+package/feeds/themes/luci-app-vantage
+package/feeds/themes/luci-app-vantage-aps
+package/feeds/themes/7dollar
+package/feeds/themes/luci-theme-aurora
+package/feeds/themes/luci-app-aurora-config

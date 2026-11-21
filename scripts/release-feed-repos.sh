@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# QuartzWrt 双 Feed 仓库的 Release（自建软件源压缩包）——WP-9
+# QuartzWrt 三 Feed 仓库的 Release（自建软件源压缩包）——WP-9
 #
-# 目的（用户拍板）：`QuartzWrt-Packages`（quartz feed）与 `QuartzWrt-ThirdParty`（thirdparty
-# feed）两个仓库各发一个 Release，资产就是**该 feed 的多架构压缩包**——供他人自建软件源
-# （解压后按 `packages/<arch>/<feed>/` 目录原样挂到任意静态托管即可，索引已签名）。
+# 目的（用户拍板）：`QuartzWrt-Packages`（quartz feed）、`QuartzWrt-ThirdParty`
+# （thirdparty feed）与 `QuartzWrt-Themes`（themes feed）三个仓库各发一个 Release，
+# 资产就是**该 feed 的多架构压缩包**——供他人自建软件源（解压后按
+# `packages/<arch>/<feed>/` 目录原样挂到任意静态托管即可，索引已签名）。
 #
 # 资产（每个 feed 一个包）：
 #   <feed>-feed-<tag>.tar.gz   含 packages/<arch>/<feed>/{*.apk,packages.adb}（全部架构）
@@ -11,7 +12,7 @@
 #   说明见 Release notes（构建标识/锁定/签名指纹/自建源步骤）
 #
 # 用法:
-#   scripts/release-feed-repos.sh --tag v0.1.0 [--feed-dir DIR] [--dry-run] [--draft] [--only quartz|thirdparty]
+#   scripts/release-feed-repos.sh --tag v0.1.0 [--feed-dir DIR] [--dry-run] [--draft] [--only quartz|thirdparty|themes]
 # 说明：--feed-dir 默认 `<Builder>/../feed-out`（publish-feed-all.sh 的产物根）；
 #       缺失时请先发布一次（scripts/publish-feed-all.sh 或 release-local.sh --publish-feed）。
 
@@ -45,7 +46,7 @@ FEED_URL="$(sed -n 's/^CONFIG_QUARTZ_FEED_BASE_URL="\?\([^"]*\)"\?$/\1/p' "$BUIL
 step() { printf '\n==> %s\n' "$*"; }
 OUT="$BUILDER_DIR/../release-out/feed-repos-$TAG"; mkdir -p "$OUT"
 
-for pair in quartz:QuartzWrt-Packages thirdparty:QuartzWrt-ThirdParty; do
+for pair in quartz:QuartzWrt-Packages thirdparty:QuartzWrt-ThirdParty themes:QuartzWrt-Themes; do
   feed="${pair%%:*}"; repo="${pair#*:}"
   [ -z "$ONLY" ] || [ "$ONLY" = "$feed" ] || continue
   arches=()

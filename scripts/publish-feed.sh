@@ -11,7 +11,7 @@
 #   <dest>/ota/<board>/<subtarget>.json(+.sig)                         ← OTA 版本清单（usign 签名）
 #   <dest>/PUBLISH.txt                                                 ← 发布记录（版本/key id/体积）
 #
-# 阶段 1（D10）：--feeds quartz,thirdparty（默认，含目标包）→ 配合固件内
+# 阶段 1（D10）：--feeds quartz,thirdparty,themes（默认，含目标包）→ 配合固件内
 # quartz-defaults 的 quartz-feed.list 生效；阶段 2（全量自包含）：--feeds all +
 # CONFIG_VERSION_REPO 指向本仓库根（见 docs/SIGNING-OTA.md §6）。
 #
@@ -19,7 +19,7 @@
 #   scripts/publish-feed.sh --base-dir <构建树> --dest <目录> [选项]
 #     --arch x86_64            包架构目录（默认 x86_64；设备构建如 aarch64_generic）
 #     --board x86 --subtarget 64   目标目录（默认 x86/64；设备如 rockchip/armv8）
-#     --feeds quartz,thirdparty|all  发布哪些 feed（默认 quartz,thirdparty）
+#     --feeds quartz,thirdparty,themes|all  发布哪些 feed（默认 quartz,thirdparty,themes）
 #     --no-target              不发布目标包（kernel/kmods/base-files）
 #     --no-images              不发布镜像与 OTA 清单
 #     --ota-key PATH           usign 私钥（默认 $OTA_SIGNING_KEY 或 $QUARTZ_SIGNING_DIR/ota.key）
@@ -38,7 +38,7 @@ DEST=""
 ARCH="x86_64"
 BOARD="x86"
 SUBTARGET="64"
-FEEDS="quartz,thirdparty"
+FEEDS="quartz,thirdparty,themes"
 WITH_TARGET=1
 WITH_IMAGES=1
 OTA_KEY="${OTA_SIGNING_KEY:-${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/ota.key}}"

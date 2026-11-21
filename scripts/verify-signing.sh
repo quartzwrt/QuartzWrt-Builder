@@ -10,7 +10,7 @@
 #      quartz-ota-update，且 QUARTZ_FEED_BASE_URL 配置时携带 quartz-feed.list。
 #
 # 用法:
-#   scripts/verify-signing.sh <基座构建树> [--arch x86_64] [--feeds quartz,thirdparty]
+#   scripts/verify-signing.sh <基座构建树> [--arch x86_64] [--feeds quartz,thirdparty,themes]
 #                             [--pubkey PATH] [--ota-pub PATH]
 # 退出码: 0 全过；1 任一断言失败
 #
@@ -23,7 +23,7 @@ BASE_DIR="${1:?用法：verify-signing.sh <基座构建树> [--arch x86_64] ...}
 shift || true
 
 ARCH="x86_64"
-FEEDS="quartz,thirdparty"
+FEEDS="quartz,thirdparty,themes"
 TARGETS="x86/64"
 PUBKEY=""
 OTA_PUB=""

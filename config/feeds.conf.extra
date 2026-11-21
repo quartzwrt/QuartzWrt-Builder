@@ -1,6 +1,6 @@
-# QuartzWrt 双 Feed 定义（由 CI 追加到基座 feeds.conf 末尾，不替换基座内容）
+# QuartzWrt 三 Feed 定义（由 CI 追加到基座 feeds.conf 末尾，不替换基座内容）
 # 基座自带的 packages/luci/routing 等 feed 必须保留，否则 luci-base 等基础包缺失。
-# 两个 feed 均锁定 commit SHA（docs/TDD.md §4.2）；升级时改 SHA 后须全量 CI 验证。
+# 三个 feed 均锁定 commit SHA（docs/TDD.md §4.2）；升级时改 SHA 后须全量 CI 验证。
 # 语法：`;` 后跟分支名、`^` 后跟 commit SHA——两者不能混用（scripts/feeds 源码
 # split(/;/) 与 split(/\^/)，把 `;`+SHA 当分支会导致 git clone --branch <sha> 失败）。
 # 注意：feeds 同名包“先列者胜”，基座 feed 在前会遮蔽本文件中的同名包，
@@ -13,5 +13,7 @@
 # 2026-11-04：quartz → 0595d0d（W2.15 宽屏铺满：撤销 1400 内容轨；含 app-api r16 修复）；thirdparty → 53af1de（WP-7 Lucky/TTL/EasyTier + qmi_wwan_q MTU-RX）
 # 2026-11-20：quartz → c145bc7（**WP-13 luci-app-usb-tether 手机 USB 共享上网**：安卓/iPhone USB 网卡作 DHCP WAN 备援，仅入软件源；VM e2e 29/29 + detect 误判修复；吸收 15602f7/8f6b5a3 收口轮提交）
 # 2026-11-21：quartz → 5d124e1（WP-13 真机反馈修复：保存处理器在 luci.js View 基类而非 form.Map.prototype——原 override 崩成永久转圈；基座 set 即落盘无 apply 语义，helper 内联 + 状态页自愈兜底；VM e2e 33/33）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^5d124e148563e740cf1da7b1c367539193bc9cc4
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^53af1def4657bec217fca5334edb80ec5104d92e
+# 2026-11-22：quartz → 26a9564（WP-14 三层菜单 + Wi-Fi 家族 meta + quartz-docker + dashboard 主题门控）；themes → 910ae07（**第三个自有 feed：QuartzWrt-Themes 首轮**——Vantage v1.1.1 全收 / 7Dollar v1.0.18 / Aurora 1.4.3 + aurora-config v1.2.5）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^26a9564b87ea631ffb9bade72646e70cc1b7b8ac
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^c9486a65632cf95f23368c5859310ffe88ae61cd
+src-git themes https://github.com/quartzwrt/QuartzWrt-Themes.git^4028440184a936132af86376d3095dacdec10b1a

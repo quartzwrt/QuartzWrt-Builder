@@ -52,8 +52,8 @@ jobs:
             changed=1
           fi
 
-          # ② 双 Feed（config/feeds.conf.extra，行尾 ^SHA）
-          for feed in quartz thirdparty; do
+          # ② 三 Feed（config/feeds.conf.extra，行尾 ^SHA）
+          for feed in quartz thirdparty themes; do
             url="$(sed -n "s|^src-git $feed \([^ ^]*\)\^.*|\1|p" config/feeds.conf.extra)"
             old="$(sed -n "s|^src-git $feed [^ ^]*\^\([0-9a-f]*\)$|\1|p" config/feeds.conf.extra)"
             [ -n "$url" ] && [ -n "$old" ] || { echo "FAIL: 无法解析 $feed 锁定行"; exit 1; }
@@ -100,6 +100,7 @@ jobs:
           - [ ] 设备构建（若基座 bump）：`--device erya_fnet-3399` 补丁重验 + 镜像核验
           - [ ] 需要时手动 CI 权威验收：`gh workflow run build.yml`
           - [ ] thirdparty 涉及镜像/fork：按 `QuartzWrt-ThirdParty/docs/FORKS.md` 发布前检查单同步并复验
+          - [ ] themes 涉及主题镜像：按 `QuartzWrt-Themes/docs/FORKS.md` 同步上游并 review（许可/包结构）
 
           由 `.github/workflows/bump.yml` 自动生成（仅改锁定，不做任何构建）。
           EOF

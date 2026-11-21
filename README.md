@@ -1,6 +1,6 @@
 # QuartzWrt-Builder
 
-QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件构建与签名流水线。
+QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、三 Feed 注入、固件构建与签名流水线。
 
 整体设计规范见 [docs/TDD.md](docs/TDD.md)。
 
@@ -9,7 +9,8 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | 路径 | 职责 |
 | :--- | :--- |
 | `config/base.env` | ImmortalWrt 基座锁定（分支 + 精确 commit） |
-| `config/feeds.conf.extra` | 双 Feed 定义（CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
+| `config/feeds.conf.extra` | 三 Feed 定义（quartz/thirdparty/themes；CI 中**追加**到基座 `feeds.conf` 末尾，不替换） |
+| `config/feed-only.list` | feed-only 可选包清单（编入软件源、不进镜像：quartz-docker + 主题 feed 包） |
 | `config/seed.config` | `.config` 构建种子（x86_64 默认目标，最小集） |
 | `config/patches/` | 全局通用补丁层：路径镜像基座树（如 `target/linux/generic/pending-6.12/`），对所有目标/设备生效（x86_64、mediatek、rockchip、未来机型） |
 | `scripts/apply-common.sh` | 通用补丁层应用（build-local 与 CI 共用：`config/patches/` → 基座树，幂等，带过期清理） |
@@ -19,7 +20,7 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/check-manifest.sh` | manifest 校验（build-local 与 CI 共用：公共断言 + 设备断言） |
 | `scripts/test-in-docker.sh` | 本地镜像 Docker 快速预览：导入 rootfs 起最小服务链，浏览器看真实 LuCI（主题/Dashboard 视觉验证用；不含内核/网络/防火墙——那些走 QEMU） |
 | `scripts/test-in-vm.sh` | QEMU/KVM 真启动测试：完整引导链（BIOS→GRUB→内核）、procd 首次启动、网络栈；交互串口 / `--detach` / `--stop`（2026-10-12 实测通过；x86 目标） |
-| `scripts/check-duplicate-packages.sh` | 双 Feed 同名包扫描（CI 强制项） |
+| `scripts/check-duplicate-packages.sh` | 三 Feed（quartz/thirdparty/themes）同名包 + 基座遮蔽扫描（CI 强制项） |
 | `scripts/gen-signing-key.sh` / `inject-signing-key.sh` / `verify-signing.sh` | WP-9 签名密钥：生成（一次性）/ 构建树注入（+密钥一致性校验）/ 构建后签名强校验（docs/SIGNING-OTA.md） |
 | `scripts/publish-feed.sh` | WP-9 发布：整理 feed 树 + 目标包 + 镜像 + 签名 OTA 清单（含同名旧版本清理与索引重签）；`--rsync` 直推 NAS 等静态托管 |
 | `scripts/check-feed-live.sh` | WP-9 发布后自检：托管根可达性 / 索引签名 key id / OTA 清单验签 / 抽查包可取（#41 阶段 1 翻转前置） |
@@ -27,10 +28,10 @@ QuartzWrt 主构建仓库：ImmortalWrt 基座锁定、双 Feed 注入、固件�
 | `scripts/release-local.sh` | WP-9 发布：本地构建 → 签名校验（硬门禁）→ 打包 → `gh release create`（含多架构 feed 快照与 OTA 清单） |
 | `scripts/publish-feed-all.sh` | WP-9 多架构发布：按"架构:目标"对表发布全部 feed/目标包/镜像 + 生成软件源页面 + 一次 rsync |
 | `scripts/gen-feed-page.sh` | WP-9 软件源页面（仿 ImmortalWrt 下载页）：总览 / 包清单 / 镜像清单，纯静态自包含 |
-| `scripts/release-feed-repos.sh` | WP-9 双 Feed 仓库 Release：quartz/thirdparty 各发多架构 feed 压缩包（供自建软件源）+ 公钥 |
+| `scripts/release-feed-repos.sh` | WP-9 三 Feed 仓库 Release：quartz/thirdparty/themes 各发多架构 feed 压缩包（供自建软件源）+ 公钥 |
 | `scripts/ssh-pass.py` | pty 驱动 ssh/rsync 密码认证（NAS 等无 key 远端发布用；密码仅走环境变量） |
 | `.github/workflows/build.yml` | GitHub Actions 全量构建流水线（仅手动触发；`device` 切换设备目标；`publish` 发布 feed/OTA） |
-| `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/双 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
+| `.github/workflows/bump.yml` | 锁定自动检查（每周 + 手动）：基座/三 Feed 上游更新 → 开 bump PR；另附受控 Fork 上游发版观察 |
 | `docs/TDD.md` | 技术设计文档（唯一权威版本） |
 | `docs/SIGNING-OTA.md` | WP-9 设计与运行手册：签名体系、公钥预置、软件源发布（D10 阶段 1/2 与 #41 翻转条件）、OTA 原型、ASU 评估、Bump CI |
 | `dev/ota-drill/` | WP-9 演练证据（日志 / summary.json / PUBLISH.txt） |
@@ -51,7 +52,7 @@ gh workflow run build.yml
 ## 构建锁定状态（docs/TDD.md §4）
 
 - ✅ 基座锁定：`config/base.env`（ImmortalWrt 25.12 @ ce35a9e4）。
-- ✅ 双 Feed 锁定：`config/feeds.conf.extra` 已从 `;main` 改为 commit SHA；升级时更新 SHA 并触发全量 CI 验证。
+- ✅ 三 Feed 锁定：`config/feeds.conf.extra` 已从 `;main` 改为 commit SHA（quartz/thirdparty/themes）；升级时更新 SHA 并触发全量 CI 验证。
 - ✅ 第三方包校验和：`PKG_MIRROR_HASH` 已回填（thirdparty feed）。
 - ✅ apk 签名与 OTA（WP-9，2026-10-14）：稳定 EC 签名密钥（Secrets → 构建注入）+ 公钥随
   `quartz-defaults` 预置 + 签名校验 + feed/OTA 发布管线 + 端到端演练（见 `docs/SIGNING-OTA.md`）。

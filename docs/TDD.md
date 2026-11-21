@@ -1,11 +1,11 @@
 # 💎 QuartzWrt 技术设计文档 (TDD)
 
-**文档版本**: v2.0.2（双 Feed 架构与第三方包集成规范合并版；2026-11-21 增补三层菜单与可选 docker 包）
+**文档版本**: v2.1.0（三 Feed 架构（quartz/thirdparty/themes）与第三方包集成规范；2026-11-22 增补主题 feed）
 **项目代号**: Quartz (石英)
 **基座系统**: ImmortalWrt (OpenWrt 衍生版)
 **文档状态**: 已确认 (Approved)
 **适用范围**: QuartzWrt 固件构建、App 开发、第三方插件引入
-**最后更新**: 2026-11-21
+**最后更新**: 2026-11-22
 
 > **版本说明**：本文由《QuartzWrt 技术设计文档 v1.1.0》与《QuartzWrt 第三方软件包集成与管理规范 v1.0.0》合并而成，统一了两份文档的术语、修正了与 OpenWrt 构建机制不符的示例，并补充了 Feed 自锁定、运行时资源锁定、签名与 OTA 等章节。
 
@@ -18,6 +18,7 @@
 | `QuartzWrt-Builder` | 仓库 | 主构建仓库：`.config` 种子、`feeds.conf`、构建脚本、CI 流水线、`docs/` |
 | `QuartzWrt-Packages` | 仓库 | 自有核心与适配层。在 `feeds.conf` 中的 feed 标识为 **`quartz`** |
 | `QuartzWrt-ThirdParty` | 仓库 | 第三方插件收集器。在 `feeds.conf` 中的 feed 标识为 **`thirdparty`** |
+| `QuartzWrt-Themes` | 仓库 | 第三方主题收集器（纯镜像）。在 `feeds.conf` 中的 feed 标识为 **`themes`** |
 | `quartz-defaults` | 元包 | 位于 `QuartzWrt-Packages` 的 `meta/` 目录，统一声明跨 Feed 的包依赖 |
 | Bridge（适配层） | 软件包 | 位于 `quartz` feed，将纯 LuCI 单体插件的底层操作封装为标准 ubus API |
 | 受控 Fork | 机制 | 承载第三方适配改动的本组织 fork：`main` 保持上游镜像、适配走 `quartz` 分支、发布锁 `vX.Y.Z-quartzN` tag（§4.7） |
@@ -30,12 +31,12 @@
 
 **QuartzWrt** 是一个专注于现代化交互体验、移动端联动与蜂窝/5G 模组管理的 OpenWrt 衍生发行版。本项目通过剥离沉重的底层硬件适配包袱，将研发精力聚焦于**消费级 UI 体验**、**无缝的 App 生态联动**与**基于 qmodem 的蜂窝能力**。
 
-项目采用严格的 **Overlay（覆盖）架构** 与 **双 Feed（双软件源）策略**，将 ImmortalWrt 视为只读基座，通过独立的第三方包收集库与自有核心功能库，结合自动化 CI/CD 流水线，确保系统的高可维护性、稳定性和上游同步能力。
+项目采用严格的 **Overlay（覆盖）架构** 与 **三 Feed（三软件源）策略**，将 ImmortalWrt 视为只读基座，通过独立的第三方包收集库、第三方主题收集库与自有核心功能库，结合自动化 CI/CD 流水线，确保系统的高可维护性、稳定性和上游同步能力。
 
 ### 核心交付物
 1. **Quartz Theme & Dashboard**：具备“石英”质感（毛玻璃/暗色模式）的现代 Web 仪表盘。
 2. **Quartz App**：跨平台移动端应用，支持局域网自动发现与安全的远程管理。
-3. **双 Feed 软件源**：分离的 `QuartzWrt-Packages`（核心特色）与 `QuartzWrt-ThirdParty`（社区优秀插件）。
+3. **三 Feed 软件源**：分离的 `QuartzWrt-Packages`（核心特色）、`QuartzWrt-ThirdParty`（社区优秀插件）与 `QuartzWrt-Themes`（第三方主题）。
 4. **Automated Builder**：基于 GitHub Actions 的全自动固件构建与签名流水线。
 5. **Cellular / 5G 模组管理**：以 qmodem 为基座，覆盖模组信息、信号/小区、拨号、SIM/短信、AT 调试与流量统计，并对 FNet3399 + RG520N-EU 做设备级适配。
 
@@ -51,7 +52,7 @@
 
 ## 3. 系统架构设计 (System Architecture)
 
-### 3.1 Overlay 架构与双 Feed 设计
+### 3.1 Overlay 架构与三 Feed 设计
 
 **核心原则：绝对不修改上游 ImmortalWrt 源码。** 所有定制内容通过独立的 Feed 叠加，并严格区分“自有核心”与“第三方收集”。
 
@@ -59,9 +60,10 @@
 *   `QuartzWrt-Builder` (主构建仓库)：包含 `.config` 种子、`feeds.conf`、构建脚本、补丁。
 *   `QuartzWrt-Packages`（**`quartz` Feed**）：仅包含 QuartzWrt 专属研发的核心代码。
 *   `QuartzWrt-ThirdParty`（**`thirdparty` Feed**）：作为社区优秀第三方软件包的“收集器”和“适配层”。
+*   `QuartzWrt-Themes`（**`themes` Feed**）：第三方主题收集器（Vantage/7Dollar/Aurora 等，纯镜像 + 周更 PR）。
 
 #### 第三方包集成三大原则
-1.  **物理隔离 (Physical Isolation)**：严格区分“自有核心代码”与“第三方收集代码”，通过双 Feed 架构实现物理仓库隔离。
+1.  **物理隔离 (Physical Isolation)**：严格区分“自有核心代码”与“第三方收集代码”，通过三 Feed 架构实现物理仓库隔离（插件与主题分仓）。
 2.  **能力下沉与多端复用 (Backend Decoupling)**：App 和 Dashboard 绝不直接解析第三方 LuCI 的 HTML 页面或耦合其 UI 逻辑。所有第三方功能必须抽象为标准 API（ubus/HTTP）供多端调用。
 3.  **不可变上游 (Immutable Upstream)**：严禁直接修改上游仓库（不向其提交、不强推、不改写历史）。适配、补丁或 API 桥接通过两条路径承载：**受控 Fork**（§4.7：fork 至本组织、镜像/适配分支分离、锁 tag）或 `quartz` Feed 的独立包（Bridge 适配层 / 再开发）。
 
@@ -96,9 +98,24 @@ QuartzWrt-ThirdParty/
     └── ...                              # 第三方包所需的特定依赖库
 ```
 
-> **引入方式约定**：`thirdparty` Feed 中的每个包只放**薄 Makefile**（声明 `PKG_SOURCE_URL` + 锁定版本 + 校验和），源码由 OpenWrt 构建系统下载。**禁止**使用 Git Submodule 引入上游仓库（feeds 本身就是 git 仓库，嵌套 submodule 不会随 `scripts/feeds update` 更新）。**Fork 上游承载适配改动必须遵循 §4.7 受控 Fork 规范**（2026-10-14 用户拍板）：fork 至 `quartzwrt` 组织，`main` 保持上游镜像（只 merge、不放自有提交），适配改动走 `quartz` 分支并打 `vX.Y.Z-quartzN` tag，feed 锁定 tag/commit；发布前同步上游并复验。
+**3. `themes` Feed (`QuartzWrt-Themes`)** - *第三方主题源（纯镜像，不预装）*
+```text
+QuartzWrt-Themes/
+├── themes/
+│   ├── vantage/                 # luci-theme-vantage + luci-app-vantage + luci-app-vantage-aps
+│   ├── 7dollar/                 # luci-theme-7dollar
+│   ├── aurora/、aurora-config/  # luci-theme-aurora + luci-app-aurora-config
+├── scripts/sync-mirrors.sh      # 上游整仓镜像（周更 PR）
+└── docs/FORKS.md                # 上游/锁定/许可/排除台账
+```
 
-> **同名包与基座遮蔽（2026-10-12 实践）**：feeds 同名包**先列者胜**，基座默认 feeds 在 `feeds.conf` 中位于双 Feed 之前——基座已提供的包（如 ImmortalWrt luci feed 自带的 `luci-app-openclash`、`luci-app-dockerman`）会**遮蔽** thirdparty 的同名包。因此：基座/quartz feed 已提供且满足需求的包**一律不收录**，由 `quartz-defaults` 直接 `DEPENDS`；仅收录基座没有的包（如 `luci-lib-docker`）。不能靠 feeds 顺序覆盖基座。
+> **主题归属**：`luci-theme-quartz` 为自有核心（quartz feed）；`themes` 只收第三方主题。
+> 基座 luci feed 已含 argon/bootstrap/footstrap/material/openwpt/openwpt-2020，同名不收录。
+> dashboard 落地页互斥由 `quartz` feed 的 `luci-app-dashboard` 门控承接（不改主题包）。
+
+（声明 `PKG_SOURCE_URL` + 锁定版本 + 校验和），源码由 OpenWrt 构建系统下载。**禁止**使用 Git Submodule 引入上游仓库（feeds 本身就是 git 仓库，嵌套 submodule 不会随 `scripts/feeds update` 更新）。**Fork 上游承载适配改动必须遵循 §4.7 受控 Fork 规范**（2026-10-14 用户拍板）：fork 至 `quartzwrt` 组织，`main` 保持上游镜像（只 merge、不放自有提交），适配改动走 `quartz` 分支并打 `vX.Y.Z-quartzN` tag，feed 锁定 tag/commit；发布前同步上游并复验。
+
+> **同名包与基座遮蔽（2026-10-12 实践）**：feeds 同名包**先列者胜**，基座默认 feeds 在 `feeds.conf` 中位于三 Feed 之前——基座已提供的包（如 ImmortalWrt luci feed 自带的 `luci-app-openclash`、`luci-app-dockerman`）会**遮蔽** thirdparty/themes 的同名包。因此：基座/quartz feed 已提供且满足需求的包**一律不收录**，由 `quartz-defaults` 直接 `DEPENDS`；仅收录基座没有的包（如 `luci-lib-docker`）。不能靠 feeds 顺序覆盖基座。
 
 ### 3.2 元数据包 (Meta-Package) 机制
 
@@ -140,6 +157,7 @@ endef
 *   thirdparty 镜像包的归组改动放 `QuartzWrt-ThirdParty/patches/<条目>/`，由 `sync-mirrors.sh` 在 rsync 之后应用；上游漂移导致补丁失败即硬失败，**禁止直接改镜像目录**（见 `docs/FORKS.md`）。
 *   Wi-Fi 驱动家族 meta 用 `Package/.../config` 内的 `depends on PACKAGE_<meta>` + `select PACKAGE_kmod-*` + `select DRIVER_11*_SUPPORT`：避免 meta `DEPENDS:=+kmod` 触发 `scripts/package-metadata.pl` 的依赖上提（能力符号无菜单入口 → 整组隐藏）。
 *   **仅呈现层**：发布构建的预装事实源仍是 WP-12 的种子片段（`config/preinstall/*` + `devices/*`）；菜单重组不改变任何符号名，Gate A/B 断言零影响。
+*   **主题 feed 不参与三层菜单**：`themes` 包为第三方主题（用户按需 `apk add`），保持上游 `LUCI_CATEGORY`/`LUCI_SUBMENU` 或 luci.mk 默认归类，不做 QuartzWrt 归组。
 
 ### 3.3 Quartz UI 与 Dashboard 架构
 
@@ -206,6 +224,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
     ```conf
     src-git quartz https://github.com/YourOrg/QuartzWrt-Packages.git^<commit-sha>
     src-git thirdparty https://github.com/YourOrg/QuartzWrt-ThirdParty.git^<commit-sha>
+    src-git themes https://github.com/YourOrg/QuartzWrt-Themes.git^<commit-sha>
     ```
     > **语法注意（2026-10-12 实测）**：`;` 后跟的是**分支名**，`^` 后跟的才是 **commit SHA**（`scripts/feeds` 源码用 `split(/;/)` 与 `split(/\^/)` 区分）。写成 `;`+SHA 会被当作分支执行 `git clone --branch <sha>`，在 GitHub 上报 `Remote branch ... not found` 直接失败。
 *   **基座锁定**：`QuartzWrt-Builder` 必须记录所用 ImmortalWrt 的**分支 + 精确 commit**，不随上游滚动。
@@ -229,7 +248,7 @@ PKG_MIRROR_HASH:=a1b2c3d4e5f6...     # 生成源码 tarball 的 SHA256 校验和
 
 ### 4.5 同名包冲突处理规则
 
-两个 Feed 存在同名包（如都提供 `luci-app-docker`）时：
+自有 Feed 两两存在同名包（quartz / thirdparty / themes，如都提供 `luci-app-docker`）时：
 
 1.  **默认规则**：在 `thirdparty` Feed 中**重命名冲突包**（如 `luci-app-docker-thirdparty`），从源头消除歧义。
 2.  **兜底手段**：`feeds.conf` 中先列出的 Feed 优先级更高（`quartz` 在前即可覆盖 `thirdparty`）。但历史上 OpenWrt 在重复包的依赖解析上出过 bug，顺序只作为最后手段，不可依赖。
@@ -300,7 +319,7 @@ config/patches/target/linux/generic/pending-6.12/999-xxx.patch
 3. **同步纪律**：上游发版或 QuartzWrt 发布前 → merge 上游 → rebase 适配分支 → 单包编译 + 验收复验；有价值的改动尽量 PR 回上游，减少长期分叉；
 4. **登记**：fork 清单与同步状态登记在 `QuartzWrt-ThirdParty/docs/FORKS.md`（上游→fork 对应、锁定 tag、改动摘要、上次同步日期）；
 5. **归口**：活跃上游的适配版登记在 `thirdparty`（源指 fork）；分叉深到"再开发"程度（上游停更/大改）时迁 `quartz` Feed 独立包（WP-10 模式）；
-6. **feed 形态（三选，本项目采用 ③）**：① thirdparty 薄 Makefile 指向 fork（需复刻上游安装规则，易漂移）；② fork 仓库作为独立 feed 行追加进 `feeds.conf.extra`（零复制，但 feed 数量与 CI 覆盖面增加）；③ **镜像进 `QuartzWrt-ThirdParty`（采用）**——受控 fork 或上游直取的整仓/子集内容镜像进本仓库子目录（同步脚本 `scripts/sync-mirrors.sh` + `docs/FORKS.md` 台账；可按条目排除不需要的包目录，如基座已提供的同名包），**feed 仍只有 `quartz`/`thirdparty` 两条、锁定沿用 thirdparty commit**；fork 保留为上游跟踪 + 适配分支的改动脉络（无适配需求的上游直取、不建 fork）。
+6. **feed 形态（三选，本项目采用 ③）**：① thirdparty 薄 Makefile 指向 fork（需复刻上游安装规则，易漂移）；② fork 仓库作为独立 feed 行追加进 `feeds.conf.extra`（零复制，但 feed 数量与 CI 覆盖面增加）；③ **镜像进 `QuartzWrt-ThirdParty`（采用）**——受控 fork 或上游直取的整仓/子集内容镜像进本仓库子目录（同步脚本 `scripts/sync-mirrors.sh` + `docs/FORKS.md` 台账；可按条目排除不需要的包目录，如基座已提供的同名包），**feed 仍只有 `quartz`/`thirdparty`/`themes` 三条（themes 只镜像主题）、各自锁定 commit**；fork 保留为上游跟踪 + 适配分支的改动脉络（无适配需求的上游直取、不建 fork）。
 
 ---
 
@@ -368,12 +387,12 @@ config/patches/target/linux/generic/pending-6.12/999-xxx.patch
 
 ### 7.1 自动化构建流水线 (GitHub Actions)
 
-**发布通道（2026-10-15 修订，用户拍板「本地构建结果也可正常发 Release」）**：**CI 与本地构建是等价的两条构建通道**——同一基座/双 Feed 锁定、同一把稳定签名密钥（CI 走 Secrets、本地走 `QUARTZ_SIGNING_DIR`）、同一套门禁（同名包检查 / manifest 断言 / `scripts/verify-signing.sh` 签名校验，见 §7.4 与 Builder `docs/SIGNING-OTA.md` §11）；**发布件可来自任一通道**，但**必须**通过上述门禁（`scripts/release-local.sh` 内置硬门禁：签名校验不过即拒绝发布）。一致性边界：包版本为确定性（由 feed 提交派生，两通道逐字相同）、签名同一把（设备互认）；镜像**跨机逐字节一致不承诺**（宿主工具链不同），需要时可设 `SOURCE_DATE_EPOCH` 做同机可复现构建，发布件以随附 `sha256sums` 为准。CI 仍保留为**干净环境权威验收**（跨环境核对 / 基础设施与设备适配重大变更后复验）。
-**触发策略（2026-10-12 起）**：CI 仅手动触发（`workflow_dispatch`），不随 push/PR 自动运行；定时构建取消（基座与双 Feed 已锁定 SHA，计划构建只会重复同一状态）；日常构建验证走本地 `scripts/build-local.sh`。
+**发布通道（2026-10-15 修订，用户拍板「本地构建结果也可正常发 Release」）**：**CI 与本地构建是等价的两条构建通道**——同一基座/三 Feed 锁定、同一把稳定签名密钥（CI 走 Secrets、本地走 `QUARTZ_SIGNING_DIR`）、同一套门禁（同名包检查 / manifest 断言 / `scripts/verify-signing.sh` 签名校验，见 §7.4 与 Builder `docs/SIGNING-OTA.md` §11）；**发布件可来自任一通道**，但**必须**通过上述门禁（`scripts/release-local.sh` 内置硬门禁：签名校验不过即拒绝发布）。一致性边界：包版本为确定性（由 feed 提交派生，两通道逐字相同）、签名同一把（设备互认）；镜像**跨机逐字节一致不承诺**（宿主工具链不同），需要时可设 `SOURCE_DATE_EPOCH` 做同机可复现构建，发布件以随附 `sha256sums` 为准。CI 仍保留为**干净环境权威验收**（跨环境核对 / 基础设施与设备适配重大变更后复验）。
+**触发策略（2026-10-12 起）**：CI 仅手动触发（`workflow_dispatch`），不随 push/PR 自动运行；定时构建取消（基座与三 Feed 已锁定 SHA，计划构建只会重复同一状态）；日常构建验证走本地 `scripts/build-local.sh`。
 
 **CI 核心 Pipeline:**
 1.  **Checkout**: 拉取 `QuartzWrt-Builder` 与 ImmortalWrt 基座（锁定分支 + 精确 commit，见 §4.2）。
-2.  **Feeds Inject**: 在基座默认 `feeds.conf` **末尾追加** `quartz` 与 `thirdparty` 两行（保留基座 packages/luci 等 feed，不得整体覆写，否则 luci-base 等基础包缺失；锁定 commit，见 §4.2）。
+2.  **Feeds Inject**: 在基座默认 `feeds.conf` **末尾追加** `quartz`、`thirdparty` 与 `themes` 三行（保留基座 packages/luci 等 feed，不得整体覆写，否则 luci-base 等基础包缺失；锁定 commit，见 §4.2）。
 3.  **Update & Install**: 执行 `./scripts/feeds update -a && ./scripts/feeds install -a`。
 4.  **Duplicate Check**: 同名包 / 基座遮蔽扫描（含基座 feed，见 §4.5），发现冲突即失败。
 5.  **Common/Device Apply**: 通用补丁层（`scripts/apply-common.sh`，所有目标）→ 设备适配层（`scripts/apply-device.sh`，`device` 输入非空时；见 §4.6/§4.6.1）。
@@ -400,6 +419,7 @@ CI 与本地构建分工：**CI 覆盖干净环境可重现性与权威验收**�
 
 *   **脚本**：`scripts/build-local.sh` —— 复刻 §7.1 流水线的全部关键步骤：基座检出（锁定 commit）→ feeds 追加注入 → `feeds update/install` → 同名包检查 → 通用补丁层应用 →（设备构建）设备适配层应用 → `seed.config` + `make defconfig` → `make` → 产物收集与 manifest 校验（公共断言与设备断言经 `scripts/check-manifest.sh` 共用），产物落本地目录。**设备构建**：`--device <名>`（§4.6），产物落 `artifacts-local/<设备名>/`。
 *   **镜像格式与 docker 可选包（2026-10-16 / 2026-11-21 用户指令）**：**只出 squashfs 镜像**（`config/common.config` 关闭 `CONFIG_TARGET_ROOTFS_EXT4FS`，ext4 系列不再生成）；**只出标准版**——docker 不再是构建变体（`build-local.sh`/`build.yml`/`compose-seed.sh`/`check-manifest.sh` 已去除变体分支）。需要 docker 的设备安装 `quartz` feed 的可选包 `quartz-docker`（meta：docker/dockerd/compose/dockerman + nftables 后端配方，不预装；`check-manifest.sh` 对其做反向断言）。**feed-only 编译**：该包不进种子/镜像，构建末尾以 `make package/feeds/quartz/quartz-docker/compile` + `make package/index` 编入软件源（单包编译不构建 docker 栈）。GitHub Release / 软件源 / OTA 全部只发标准版；`publish-feed.sh` 保留 `CONFIG_PACKAGE_dockerd=y` 自定义构建的拒绝护栏。详见 Builder `docs/SIGNING-OTA.md` §14。
+*   **feed-only 可选包（2026-11-22）**：`config/feed-only.list`（`quartz-docker` + `themes` feed 的 6 个主题包）在 `make` 之后逐包编译并执行 `make package/index`——**编入软件源供用户 `apk add`，不进镜像**；清单条目在当前 feed 锁定不含时自动跳过。
 *   **性能**：32 核开发机建议 `-j16`（15GB 内存边界，避免并行编译 OOM）；首次全量约 45–90 分钟，保留 `build_dir`/`staging_dir`/ccache 后增量重编为分钟级。单包迭代用 `make package/feeds/<feed>/<pkg>/{clean,compile}`。
 *   **前置条件**：OpenWrt 构建依赖齐全（build-essential、gawk、gettext、libncurses-dev 等；注意 `/usr/bin/awk` 不能指向 mawk；另需 `zstd`）；构建目录必须位于 Linux 文件系统（如 `/home`），WSL 下禁用 `/mnt/c`（大小写不敏感会破坏构建）。**WSL 额外注意**：须剔除 PATH 中的 Windows 条目（`/mnt/c/...`，含空格路径）——GNU find 的 `-execdir` 安全检查会因相对/含空格路径直接报错（实测触发于 rust host 包安装阶段）；`scripts/build-local.sh` 已内置 PATH 净化。
 *   **同步义务**：CI workflow 与本地脚本的步骤必须保持一致，任一侧变更需同步另一侧。

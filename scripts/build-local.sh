@@ -127,14 +127,14 @@ else
 fi
 git -C "$BASE_DIR" checkout "$BASE_COMMIT"
 
-# 3. feeds 注入：在基座默认 feeds.conf 末尾追加双 Feed，不覆写（坑位 #2）
-step "注入 feeds.conf（追加双 Feed）"
+# 3. feeds 注入：在基座默认 feeds.conf 末尾追加三 Feed，不覆写（坑位 #2）
+step "注入 feeds.conf（追加三 Feed）"
 cp "$BASE_DIR/feeds.conf.default" "$BASE_DIR/feeds.conf"
 cat "$BUILDER_DIR/config/feeds.conf.extra" >> "$BASE_DIR/feeds.conf"
 tail -n 4 "$BASE_DIR/feeds.conf"
 
 # 4. feeds update / install
-# 两个自有 feed 锁定为 commit（双 Feed 定义中的 ^SHA）：scripts/feeds 对已存在的
+# 三个自有 feed 锁定为 commit（三 Feed 定义中的 ^SHA）：scripts/feeds 对已存在的
 # checkout 会直接跳过（源码注释 "in case git hash has been provided don't update
 # the feed"），配置改 SHA 后不会重新检出。因此每轮强制删除旧目录，保证按锁定
 # SHA 重新克隆、修复包增删后的残留（CI 每次全新检出，无此问题）。
@@ -143,11 +143,11 @@ if [ "${QUARTZ_SKIP_FEEDS_UPDATE:-0}" = 1 ]; then
   (cd "$BASE_DIR" && ./scripts/feeds install -a)
 else
   step "feeds update + install"
-  rm -rf "$BASE_DIR/feeds/quartz" "$BASE_DIR/feeds/thirdparty" \
-         "$BASE_DIR/package/feeds/quartz" "$BASE_DIR/package/feeds/thirdparty"
+  rm -rf "$BASE_DIR/feeds/quartz" "$BASE_DIR/feeds/thirdparty" "$BASE_DIR/feeds/themes" \
+         "$BASE_DIR/package/feeds/quartz" "$BASE_DIR/package/feeds/thirdparty" "$BASE_DIR/package/feeds/themes"
   (cd "$BASE_DIR" && ./scripts/feeds update -a && ./scripts/feeds install -a)
 fi
-for f in quartz thirdparty; do
+for f in quartz thirdparty themes; do
   echo "feed $f @ $(git -C "$BASE_DIR/feeds/$f" rev-parse HEAD)"
 done
 
@@ -160,7 +160,7 @@ if [ -f "$HOME/newproject.md" ]; then
   step "TDD 双副本一致（newproject.md == docs/TDD.md）"
 fi
 
-# 5. 双 Feed 同名包检查（docs/TDD.md §4.5）
+# 5. 三 Feed 同名包检查（docs/TDD.md §4.5）
 step "同名包检查"
 bash "$BUILDER_DIR/scripts/check-duplicate-packages.sh" "$BASE_DIR/feeds"
 
@@ -249,12 +249,24 @@ find "$TARGET_BIN_DIR" -maxdepth 1 -name '*-ext4-*' -delete 2>/dev/null || true
 step "全量构建 make -j$JOBS（首次约 45–90 分钟，换架构工具链重建更长）"
 (cd "$BASE_DIR" && make -j"$JOBS" V=w)
 
-# 9. feed-only 可选包：quartz-docker 不进镜像（未被种子选择），但必须出现在软件源里
-#    供用户 `apk add quartz-docker`。单包编译不会拉取/编译其 DEPENDS 中的 docker 栈；
-#    随后重建并签名 feed 索引（package/index）。
-if [ -d "$BASE_DIR/feeds/quartz/meta/quartz-docker" ]; then
-  step "编译 feed-only 可选包（quartz-docker）并重建 feed 索引"
-  (cd "$BASE_DIR" && make package/feeds/quartz/quartz-docker/compile V=w)
+# 9. feed-only 可选包：不进镜像（未被种子选择），但必须出现在软件源里供用户
+#    `apk add`。清单见 config/feed-only.list（每行一个 package/feeds/... 目标；
+#    当前 feed 锁定不含该包时自动跳过）。单包编译不会把镜像撑大；随后重建并签名
+#    feed 索引（package/index）。
+FEED_ONLY_LIST="$BUILDER_DIR/config/feed-only.list"
+if [ -f "$FEED_ONLY_LIST" ]; then
+  step "编译 feed-only 可选包（config/feed-only.list）并重建 feed 索引"
+  while IFS= read -r p; do
+    case "$p" in ''|\#*) continue ;; esac
+    if [ -d "$BASE_DIR/$p" ]; then
+      echo "  - $p"
+      # 直接进入包目录编译（不经过顶层依赖图，避免把 libs/toolchain 等判为过期重打包）；
+      # DEVELOPER=1：未在 .config 选中的包也生成 apk（LuCI 包的 compile 默认为空操作）。
+      make -C "$BASE_DIR/$p" TOPDIR="$BASE_DIR" compile V=w DEVELOPER=1
+    else
+      echo "  SKIP: $p（当前 feed 锁定不含该包）"
+    fi
+  done < "$FEED_ONLY_LIST"
   (cd "$BASE_DIR" && make package/index V=w)
 fi
 
