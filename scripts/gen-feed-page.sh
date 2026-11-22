@@ -204,6 +204,7 @@ body = f"""<p class="sub">QuartzWrt 固件与软件包的公开镜像（apk 源�
 <pre># /etc/apk/repositories.d/quartz-feed.list
 {esc(url or 'https://sources.quartzwrt.org/quartz-feed')}/packages/&lt;arch&gt;/quartz/packages.adb
 {esc(url or 'https://sources.quartzwrt.org/quartz-feed')}/packages/&lt;arch&gt;/thirdparty/packages.adb
+{esc(url or 'https://sources.quartzwrt.org/quartz-feed')}/packages/&lt;arch&gt;/themes/packages.adb
 {esc(url or 'https://sources.quartzwrt.org/quartz-feed')}/targets/&lt;board&gt;/&lt;subtarget&gt;/packages/packages.adb</pre>
 <p>固件升级走 OTA 清单（usign 签名 + 镜像 sha256）：设备上 <code>quartz-ota-update --check</code>。</p>
 
