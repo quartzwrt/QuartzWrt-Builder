@@ -169,6 +169,13 @@ if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
     cp -f "$_ota_json" "$OUT/ota-$BOARD-$SUB.json"
     cp -f "$_ota_json.sig" "$OUT/ota-$BOARD-$SUB.json.sig" 2>/dev/null || true
   fi
+  # per-device 清单（同 subtarget 多机型；随 feed 树一并进 Release）
+  if [ -d "$OUT/feed/ota/$BOARD/$SUB" ]; then
+    for f in "$OUT/feed/ota/$BOARD/$SUB"/*.json "$OUT/feed/ota/$BOARD/$SUB"/*.json.sig; do
+      [ -f "$f" ] || continue
+      cp -f "$f" "$OUT/ota-$BOARD-$SUB-$(basename "$f")"
+    done
+  fi
   if [ "$FEED_TARBALL" = 1 ]; then
     step "打包 feed 快照（不含镜像；含软件源页面）"
     ( cd "$OUT/feed" && tar --exclude='*.img.gz' --exclude='*.bin' -czf "$OUT/quartz-feed-$TAG.tar.gz" . )
@@ -214,7 +221,8 @@ if [ -z "$NOTES_FILE" ]; then
 | \`*-sysupgrade.bin\` | 设备 sysupgrade 镜像（H5000M 等 filogic 目标） |
 | \`*.manifest\` | 包清单 |
 | \`sha256sums\` / \`profiles.json\` | 校验和（\`sha256sum -c sha256sums\`）/ 设备档案 |
-| \`ota/$BOARD/$SUB.json(.sig)\` | OTA 版本清单（usign 签名） |
+| \`ota/$BOARD/$SUB.json(.sig)\` | OTA 共享清单（usign 签名；多机型时 images 为空） |
+| \`ota/$BOARD/$SUB/<device>.json(.sig)\` | OTA per-device 清单（同 subtarget 多机型按机型分发） |
 | \`quartz-feed-$TAG.tar.gz\` | 本版 feed 快照（不含镜像；解压后根即 URL 根，供自建源/离线） |
 
 ## 安装与升级
