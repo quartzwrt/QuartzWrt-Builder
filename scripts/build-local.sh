@@ -274,8 +274,14 @@ fi
 # 目标域限定：多目标构建产物在 bin/targets/<board>/<subtarget>/ 共存，
 # 一律按本次目标取 manifest/镜像，避免误取其他目标的存量产物。
 step "校验固件 manifest"
-manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
-[ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest" >&2; exit 1; }
+if [ -n "$DEVICE" ]; then
+  # 同 subtarget 可能有多机型产物（如 rockchip/armv8 的 Photonicat + FNet3399）：
+  # 必须按设备名过滤，否则 head -1 会取到别的设备 manifest（Gate B 假失败）。
+  manifest="$(find "$TARGET_BIN_DIR" -name "*${DEVICE}*.manifest" | head -1)"
+else
+  manifest="$(find "$TARGET_BIN_DIR" -name '*.manifest' | head -1)"
+fi
+[ -n "$manifest" ] || { echo "FAIL: 未在 $TARGET_BIN_DIR 找到 manifest${DEVICE:+（设备 $DEVICE）}" >&2; exit 1; }
 bash "$BUILDER_DIR/scripts/check-manifest.sh" "$manifest" "${DEVICE:-}" "$BASE_DIR"
 
 # 10b. 镜像格式自检（只出 squashfs，2026-10-16 用户指令）+ 设备镜像存在性
@@ -310,6 +316,13 @@ mkdir -p "$ARTIFACTS_DIR"
 rm -f "$ARTIFACTS_DIR"/*ext4*   # 产物目录里的陈旧 ext4（历史构建遗留；本版只出 squashfs）
 find "$TARGET_BIN_DIR" -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' -o -name '*.buildinfo' \) \
   -print0 | while IFS= read -r -d '' f; do
+    if [ -n "$DEVICE" ]; then
+      case "$(basename "$f")" in
+        *"$DEVICE"*) ;;
+        *buildinfo*) ;;
+        *) continue ;;
+      esac
+    fi
     cp "$f" "$ARTIFACTS_DIR/$(basename "$f")"
   done
 cp "$BASE_DIR/.config" "$ARTIFACTS_DIR/dotconfig"

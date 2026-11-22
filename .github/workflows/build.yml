@@ -368,7 +368,11 @@ jobs:
             fi
 
             echo "--- Verify packages in manifest"
-            manifest=$(find "$BIN" -name '*.manifest' | head -1)
+            if [ "$KIND" = device ]; then
+              manifest=$(find "$BIN" -name "*${DEV}*.manifest" | head -1)
+            else
+              manifest=$(find "$BIN" -name '*.manifest' | head -1)
+            fi
             [ -n "$manifest" ] || { echo "FAIL: 未在 $BIN 找到 manifest" >&2; exit 1; }
             if [ "$KIND" = device ]; then
               bash ../scripts/check-manifest.sh "$manifest" "$DEV" .
