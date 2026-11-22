@@ -16,5 +16,5 @@
 # 2026-11-22：quartz → 26a9564（WP-14 三层菜单 + Wi-Fi 家族 meta + quartz-docker + dashboard 主题门控）；themes → 910ae07（**第三个自有 feed：QuartzWrt-Themes 首轮**——Vantage v1.1.1 全收 / 7Dollar v1.0.18 / Aurora 1.4.3 + aurora-config v1.2.5）
 # 2026-11-22：thirdparty → 4012493（qmodem fork quartz3：MH5000-82M NCM 端口规则 include 数据接口 + log2sys debug；qmi_wwan_q MTU 修复回填）
 src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^26a9564b87ea631ffb9bade72646e70cc1b7b8ac
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^4012493
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^40124937813c628f04f2e83297d67ef4ab3194a5
 src-git themes https://github.com/quartzwrt/QuartzWrt-Themes.git^4028440184a936132af86376d3095dacdec10b1a
