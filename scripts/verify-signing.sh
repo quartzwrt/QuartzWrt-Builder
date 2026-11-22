@@ -117,6 +117,14 @@ else
     else
       bad "已设 QUARTZ_FEED_BASE_URL=$url 但 quartz-feed.list 缺失/不符"
     fi
+    # 三条自有 feed 必须全部生成（themes 曾漏生成 → 主题源已发布但固件不消费）
+    for feed in quartz thirdparty themes; do
+      if grep -qE "/packages/[^/]+/$feed/packages\.adb$" "$tmp/etc/apk/repositories.d/quartz-feed.list" 2>/dev/null; then
+        ok "quartz-feed.list 含 $feed 行"
+      else
+        bad "quartz-feed.list 缺 $feed 行"
+      fi
+    done
     if [ -f "$tmp/etc/quartz-ota.url" ] && [ "$(cat "$tmp/etc/quartz-ota.url")" = "$url" ]; then
       ok "quartz-ota.url 在列（OTA 源同根，零配置可用）"
     else

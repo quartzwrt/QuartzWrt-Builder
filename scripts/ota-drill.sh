@@ -121,6 +121,7 @@ else
   { echo "# drill 生成的 feed 行（构建时未配 QUARTZ_FEED_BASE_URL）"
     echo "http://192.168.1.2:$HTTP_PORT/packages/x86_64/quartz/packages.adb"
     echo "http://192.168.1.2:$HTTP_PORT/packages/x86_64/thirdparty/packages.adb"
+    echo "http://192.168.1.2:$HTTP_PORT/packages/x86_64/themes/packages.adb"
     echo "http://192.168.1.2:$HTTP_PORT/targets/x86/64/packages/packages.adb"
   } > "$PAYLOAD/quartz-feed.list"
 fi
