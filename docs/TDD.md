@@ -410,7 +410,7 @@ config/patches/target/linux/generic/pending-6.12/999-xxx.patch
 
 *   **包管理器**：**已定案 apk**（基座锁定 ImmortalWrt 25.12，apk 体系）。
 *   **签名密钥**：apk 体系的签名密钥为 **EC prime256v1（P-256）密钥对**（构建树内固定名 `private-key.pem`/`public-key.pem`；**未注入时基座为每个全新构建树自生成临时密钥**，故发布构建必须注入稳定密钥）。**签的是各 feed 的 `packages.adb` 索引**（`apk mkndx --sign`），单包不签名、完整性由索引哈希链保证；索引签名块 key id = sha512(EC 原始点)[:16]。私钥存放于 GitHub Secrets（`APK_SIGNING_PRIVATE_KEY`，CI 构建前注入构建树），公钥随 `quartz-defaults` 预置（`/etc/apk/keys/quartz.pem`，与 base-files 自动投放的 `public-key.pem` 并存）。工具：Builder `scripts/gen-signing-key.sh`（生成）/`inject-signing-key.sh`（注入+一致性校验）/`verify-signing.sh`（构建后强校验）；完整设计见 Builder `docs/SIGNING-OTA.md`。usign（opkg 时代方案）不用于包签名。
-*   **固件签名**：apk 时代 sysupgrade 的 usign/ucert 镜像签名路径在基座镜像中失效（镜像未装 `ucert`，验签函数直接放行）——**镜像真实性由 OTA 通道承担**：OTA 版本清单用 usign（Ed25519，公钥 `/etc/quartz-ota.pub`）签名 + 清单内镜像 sha256 校验 + `sysupgrade` 平台/元数据预检（`-T`）。清单与镜像由 `scripts/publish-feed.sh` 随 feed 一并发布（`ota/<board>/<subtarget>.json(.sig)`）。
+*   **固件签名**：apk 时代 sysupgrade 的 usign/ucert 镜像签名路径在基座镜像中失效（镜像未装 `ucert`，验签函数直接放行）——**镜像真实性由 OTA 通道承担**：OTA 版本清单用 usign（Ed25519，公钥 `/etc/quartz-ota.pub`）签名 + 清单内镜像 sha256 校验 + `sysupgrade` 平台/元数据预检（`-T`）。清单与镜像由 `scripts/publish-feed.sh` 随 feed 一并发布（共享清单 `ota/<board>/<subtarget>.json(.sig)`；同 subtarget 多机型另发 per-device 清单 `ota/<board>/<subtarget>/<device>.json(.sig)`，共享清单 images 留空防跨机型误刷）。
 *   **OTA 通道（已定案，2026-10-14）**：v1 = **自定义 OTA 通道**（自有 feed 托管 + 签名清单 + `quartz-ota-update`，端到端演练通过）；**ASU 暂不采用**（上游 ASU 只从官方 feed 构建，无法携带 Quartz 定制与设备适配；自建 ASU 服务为 v2 候选，形态见 `docs/SIGNING-OTA.md` §7）。App 触发入口经 WP-5 动作白名单封装（v2）。
 
 ### 7.4 本地构建工作流（开发迭代）

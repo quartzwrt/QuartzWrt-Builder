@@ -4,12 +4,14 @@
 # 对托管根 URL 逐项核对（与固件 distfeeds / OTA 的 URL 约定逐字对应）：
 #   ① 可达性：packages/<arch>/<feed>/packages.adb、targets/<board>/<subtarget>/packages/packages.adb
 #   ② 索引签名：下载后校验 key id == 预置公钥（sha512(EC 原始点)[:16]，与设备端 apk 同款判定）
-#   ③ OTA：ota/<board>/<subtarget>.json 可达 + usign 验签（用仓库内 OTA 公钥）
+#   ③ OTA：ota/<board>/<subtarget>.json 可达 + usign 验签（用仓库内 OTA 公钥）；
+#      --ota-devices 额外逐个校验 ota/<board>/<subtarget>/<device>.json
 #   ④ 包可取：抽查一个 .apk 的 HTTP 200（Content-Length 与索引 file-size 一致）
 #
 # 用法:
 #   scripts/check-feed-live.sh <托管根 URL> [--arch x86_64] [--board x86 --subtarget 64]
 #                              [--feeds quartz,thirdparty,themes] [--pubkey PATH] [--ota-pub PATH]
+#                              [--ota-devices "dev1 dev2"]
 # 退出码: 0 全过（可翻转）；1 有失败项（勿翻转）
 #
 # 提示：URL 用设备可达的地址（LAN 内 NAS 用 LAN IP/域名；HTTPS 与 HTTP 均可，
@@ -25,6 +27,7 @@ ARCH="x86_64"; BOARD="x86"; SUBTARGET="64"
 FEEDS="quartz,thirdparty,themes"
 PUBKEY="${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/apk-public-key.pem}"
 OTA_PUB="${QUARTZ_SIGNING_DIR:+$QUARTZ_SIGNING_DIR/ota.pub}"
+OTA_DEVICES=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,6 +37,7 @@ while [ $# -gt 0 ]; do
     --feeds) FEEDS="$2"; shift 2 ;;
     --pubkey) PUBKEY="$2"; shift 2 ;;
     --ota-pub) OTA_PUB="$2"; shift 2 ;;
+    --ota-devices) OTA_DEVICES="${2//,/ }"; shift 2 ;;
     *) echo "未知参数：$1" >&2; exit 1 ;;
   esac
 done
@@ -116,28 +120,36 @@ else
 fi
 
 step "③ OTA 清单：$BASE_URL/ota/$BOARD/$SUBTARGET.json"
-code="$(fetch "$BASE_URL/ota/$BOARD/$SUBTARGET.json" "$TMP/ota.json")"
-code_sig="$(fetch "$BASE_URL/ota/$BOARD/$SUBTARGET.json.sig" "$TMP/ota.json.sig")"
-if [ "$code" != "200" ] || [ "$code_sig" != "200" ]; then
-  bad "OTA 清单/签名不可达（HTTP $code/$code_sig）——仅影响固件 OTA 通道，不影响包源"
-else
-  usign_bin=""
-  for cand in "${QUARTZ_WORK_DIR:-$BUILDER_DIR/../build}/immortalwrt/staging_dir/host/bin/usign" "$(command -v usign 2>/dev/null || true)"; do
-    [ -n "$cand" ] && [ -x "$cand" ] && usign_bin="$cand" && break
-  done
+usign_bin=""
+for cand in "${QUARTZ_WORK_DIR:-$BUILDER_DIR/../build}/immortalwrt/staging_dir/host/bin/usign" "$(command -v usign 2>/dev/null || true)"; do
+  [ -n "$cand" ] && [ -x "$cand" ] && usign_bin="$cand" && break
+done
+verify_ota() { # $1=清单 URL 前缀（不含 .json） $2=标签
+  local base="$1" label="$2" code code_sig out
+  out="$TMP/ota-$(echo "$label" | tr '/ ' '__')"
+  code="$(fetch "$base.json" "$out.json")"
+  code_sig="$(fetch "$base.json.sig" "$out.json.sig")"
+  if [ "$code" != "200" ] || [ "$code_sig" != "200" ]; then
+    bad "$label 清单/签名不可达（HTTP $code/$code_sig）——仅影响固件 OTA 通道，不影响包源"
+    return 0
+  fi
   if [ -z "$usign_bin" ]; then
-    echo "  SKIP: 未找到 usign（跳过 OTA 验签；构建树 staging_dir/host/bin/usign）"
+    echo "  SKIP: 未找到 usign（跳过 $label 验签；构建树 staging_dir/host/bin/usign）"
   elif [ ! -f "$OTA_PUB" ]; then
     bad "缺 OTA 公钥（$OTA_PUB）"
+  elif "$usign_bin" -q -V -m "$out.json" -p "$OTA_PUB"; then
+    ok "$label 清单验签通过（build_id=$(sed -n 's/.*"build_id": "\([^"]*\)".*/\1/p' "$out.json" | head -1)，images=$(grep -c '"name":' "$out.json" || true)）"
   else
-    # 注意：清单与签名文件需同名对位，usign -x 指向签名文件
-    cp "$TMP/ota.json" "$TMP/m.json"; cp "$TMP/ota.json.sig" "$TMP/m.json.sig"
-    if "$usign_bin" -q -V -m "$TMP/m.json" -p "$OTA_PUB"; then
-      ok "OTA 清单验签通过（build_id=$(sed -n 's/.*"build_id": "\([^"]*\)".*/\1/p' "$TMP/ota.json" | head -1)）"
-    else
-      bad "OTA 清单验签失败"
-    fi
+    bad "$label 清单验签失败"
   fi
+}
+verify_ota "$BASE_URL/ota/$BOARD/$SUBTARGET" "OTA"
+
+if [ -n "${OTA_DEVICES:-}" ]; then
+  step "③b per-device OTA 清单"
+  for dev in $OTA_DEVICES; do
+    verify_ota "$BASE_URL/ota/$BOARD/$SUBTARGET/$dev" "OTA/$dev"
+  done
 fi
 
 step "结果：PASS=$PASS FAIL=$FAIL"

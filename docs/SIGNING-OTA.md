@@ -88,7 +88,8 @@ scripts/verify-signing.sh <构建树> [--arch --feeds --targets]   # 构建后�
 ├── packages/<arch>/{quartz,thirdparty}/     # 自有 feed（*.apk + packages.adb + index.json）
 ├── targets/<board>/<subtarget>/packages/    # 目标包（kernel/kmods/base-files……）
 ├── targets/<board>/<subtarget>/             # 镜像 + sha256sums + profiles.json（OTA 下载对象）
-├── ota/<board>/<subtarget>.json(+.sig)      # OTA 版本清单（usign 签名）
+├── ota/<board>/<subtarget>.json(+.sig)      # OTA 共享清单（usign 签名；多机型时 images 为空）
+├── ota/<board>/<subtarget>/<device>.json(+.sig)  # OTA per-device 清单（按机型分发）
 └── PUBLISH.txt                              # 发布记录（build id / key id / 体积）
 ```
 
@@ -195,6 +196,14 @@ CI `publish=yes` 的 `aws s3 sync` 通道保留（Secrets：`PUBLISH_S3_ENDPOINT
 ```
 
 - 生成：`publish-feed.sh`（构建标识取自镜像内同源的 `files/etc/quartz-build-id`）；
+- **清单路径（2026-11-22 起 per-device）**：
+  - 设备侧优先 `<url>/ota/<DISTRIB_TARGET>/<device>.json`（device 取 `/tmp/sysinfo/board_name`，
+    逗号/空格归一为下划线，如 `erya,fnet-3399` → `erya_fnet-3399`），404 时回退共享清单；
+  - 同 subtarget 多机型：`publish-feed.sh` 按 sysupgrade 文件名里的机型 token 生成
+    per-device 清单，共享清单 `images` 置空——老客户端安全失败，不会抓错机型镜像；
+  - 单机型：共享清单保留全量镜像（兼容旧客户端），同时生成 per-device 清单；
+  - 设备侧即使回退到共享清单，选镜像也优先匹配含本机 device token 的文件名；
+  - 调试可用 `QUARTZ_OTA_DEVICE=<device>` 覆盖设备名。
 - 签名：`usign -S`（OTA 私钥）→ `<...>.json.sig`；
 - 设备侧 `quartz-ota-update`：清单验签（`/etc/quartz-ota.pub`）→ 版本比对（build id）
   → 下载镜像 → **sha256 校验** → `sysupgrade -T` 预检 → `sysupgrade [-n]`；
@@ -204,7 +213,8 @@ CI `publish=yes` 的 `aws s3 sync` 通道保留（Secrets：`PUBLISH_S3_ENDPOINT
 
 ① 版本比较升级为语义化/日期序（当前为 build id 相等性 + `--force` 重装）；
 ② 断点续传/带宽控制；③ App 集成（WP-5 动作白名单加 `system.ota_check/apply`，危险动作确认层）；
-④ 分设备通道（x86/aarch64 各自的 target 清单已按 `ota/<board>/<subtarget>.json` 分目录）；
+④ 分设备通道：**已落地** `ota/<board>/<subtarget>/<device>.json`（2026-11-22）；
+   同 subtarget 多机型时共享清单为空，设备按 `board_name` 命中自己的清单；剩真机升级验收；
 ⑤ 回滚策略（保留上一版本镜像 URL）。
 
 ---

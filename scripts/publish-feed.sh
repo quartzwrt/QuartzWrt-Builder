@@ -8,7 +8,10 @@
 #   <dest>/packages/<arch>/<feed>/{*.apk,packages.adb,index.json}      ← %U/packages/%A/<feed>/
 #   <dest>/targets/<board>/<subtarget>/packages/{*.apk,packages.adb}   ← %U/targets/%S/packages/
 #   <dest>/targets/<board>/<subtarget>/{镜像,sha256sums,profiles.json} ← OTA 下载对象
-#   <dest>/ota/<board>/<subtarget>.json(+.sig)                         ← OTA 版本清单（usign 签名）
+#   <dest>/ota/<board>/<subtarget>.json(+.sig)                         ← OTA 共享清单（usign 签名）
+#   <dest>/ota/<board>/<subtarget>/<device>.json(+.sig)                ← OTA per-device 清单
+#       —— 同 subtarget 多机型：共享清单 images 为空（安全失败），设备按 board_name
+#          命中自己的清单；单机型：共享清单保留全量镜像（兼容老客户端）。
 #   <dest>/PUBLISH.txt                                                 ← 发布记录（版本/key id/体积）
 #
 # 阶段 1（D10）：--feeds quartz,thirdparty,themes（默认，含目标包）→ 配合固件内
@@ -70,6 +73,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$BASE_DIR" ] && [ -d "$BASE_DIR" ] || { echo "错误：--base-dir 构建树不存在" >&2; exit 1; }
+BASE_DIR="$(cd "$BASE_DIR" && pwd)"   # 绝对化：prune_and_resign 会 cd 到目标目录再调用 host 工具
 [ -n "$DEST" ] || { echo "错误：缺 --dest 输出目录" >&2; exit 1; }
 
 # 标准版护栏（2026-11-21：docker 不再是构建变体，本检查保留为自定义构建兜底）：
@@ -197,7 +201,7 @@ if [ "$WITH_IMAGES" = 1 ]; then
   echo "  镜像: $n 个"
   [ "$n" -gt 0 ] || { echo "错误：未找到可发布镜像" >&2; exit 1; }
 
-  step "生成 OTA 清单（usign 签名）"
+  step "生成 OTA 清单（per-device；usign 签名）"
   [ -n "$OTA_KEY" ] && [ -f "$OTA_KEY" ] || {
     echo "错误：缺 OTA usign 私钥（--ota-key 或 OTA_SIGNING_KEY/QUARTZ_SIGNING_DIR/ota.key）" >&2; exit 1; }
   USIGN=""
@@ -207,35 +211,107 @@ if [ "$WITH_IMAGES" = 1 ]; then
   [ -n "$USIGN" ] || { echo "错误：未找到 usign" >&2; exit 1; }
 
   revision="$(cat "$TGT_SRC/version.buildinfo" 2>/dev/null || echo unknown)"
-  mkdir -p "$DEST/ota/$BOARD"
-  manifest="$DEST/ota/$BOARD/$SUBTARGET.json"
-  {
-    echo "{"
-    echo "  \"schema\": \"quartzwrt-ota/1\","
-    echo "  \"dist\": \"QuartzWrt\","
-    echo "  \"base\": \"ImmortalWrt 25.12\","
-    echo "  \"build_id\": \"$BUILD_ID\","
-    echo "  \"revision\": \"$revision\","
-    echo "  \"target\": \"$TARGET_REL\","
-    echo "  \"generated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
-    echo "  \"images\": ["
-    first=1
-    for img in "$DEST/targets/$TARGET_REL"/*-combined*.img.gz "$DEST/targets/$TARGET_REL"/*-sysupgrade.img.gz "$DEST/targets/$TARGET_REL"/*-sysupgrade.bin; do
-      [ -f "$img" ] || continue
-      name="$(basename "$img")"
-      sha="$(sha256sum "$img" | cut -d' ' -f1)"
-      size="$(stat -c%s "$img")"
-      [ "$first" = 1 ] || echo "    ,"
-      first=0
-      printf '    {"name": "%s", "path": "targets/%s/%s", "sha256": "%s", "size": %s}' \
-        "$name" "$TARGET_REL" "$name" "$sha" "$size"
+  OTA_DIR="$DEST/ota/$BOARD"
+  shared="$OTA_DIR/$SUBTARGET.json"
+  dev_dir="$OTA_DIR/$SUBTARGET"
+  # 同一目标重发时清掉旧清单（含已下线机型），避免陈旧 per-device 文件残留
+  rm -rf "$dev_dir"
+  rm -f "$shared" "$shared.sig"
+  mkdir -p "$dev_dir"
+
+  # 发布到 targets/ 的镜像（与上面拷贝口径一致）
+  mapfile -t _imgs < <(
+    for img in "$DEST/targets/$TARGET_REL"/*-combined*.img.gz \
+               "$DEST/targets/$TARGET_REL"/*-sysupgrade.img.gz \
+               "$DEST/targets/$TARGET_REL"/*-sysupgrade.bin; do
+      [ -f "$img" ] && echo "$img"
     done
-    echo ""
-    echo "  ]"
-    echo "}"
-  } > "$manifest"
-  "$USIGN" -S -m "$manifest" -s "$OTA_KEY" -x "$manifest.sig"
-  echo "  $manifest (+ .sig)"
+  )
+  [ "${#_imgs[@]}" -gt 0 ] || { echo "错误：未找到可发布镜像" >&2; exit 1; }
+
+  # device token：immortalwrt-<board>-<subtarget>-<device>-<fstype>-sysupgrade.{img.gz,bin}
+  device_of() {
+    local base="$1" rest
+    case "$base" in
+      "immortalwrt-$BOARD-$SUBTARGET-"*-sysupgrade.img.gz|"immortalwrt-$BOARD-$SUBTARGET-"*-sysupgrade.bin) ;;
+      *) return 1 ;;
+    esac
+    rest="${base#immortalwrt-$BOARD-$SUBTARGET-}"
+    rest="${rest%%-squashfs-sysupgrade.*}"
+    rest="${rest%%-ext4-sysupgrade.*}"
+    rest="${rest%%-sysupgrade.*}"
+    [ -n "$rest" ] || return 1
+    printf '%s' "$rest"
+  }
+
+  declare -A _dev_images=()
+  _devs=()
+  _untagged=0
+  for img in "${_imgs[@]}"; do
+    base="$(basename "$img")"
+    case "$base" in
+      *-sysupgrade.img.gz|*-sysupgrade.bin)
+        if dev="$(device_of "$base")"; then
+          if [ -z "${_dev_images[$dev]+x}" ]; then
+            _devs+=("$dev")
+            _dev_images[$dev]=""
+          fi
+          _dev_images[$dev]+="$base"$'\n'
+        else
+          _untagged=1
+        fi
+        ;;
+    esac
+  done
+
+  emit_manifest() {
+    local out="$1"; shift
+    local first=1 name sha size img
+    {
+      echo "{"
+      echo "  \"schema\": \"quartzwrt-ota/1\","
+      echo "  \"dist\": \"QuartzWrt\","
+      echo "  \"base\": \"ImmortalWrt 25.12\","
+      echo "  \"build_id\": \"$BUILD_ID\","
+      echo "  \"revision\": \"$revision\","
+      echo "  \"target\": \"$TARGET_REL\","
+      echo "  \"generated\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+      echo "  \"images\": ["
+      for name in "$@"; do
+        img="$DEST/targets/$TARGET_REL/$name"
+        sha="$(sha256sum "$img" | cut -d' ' -f1)"
+        size="$(stat -c%s "$img")"
+        [ "$first" = 1 ] || echo "    ,"
+        first=0
+        printf '    {"name": "%s", "path": "targets/%s/%s", "sha256": "%s", "size": %s}' \
+          "$name" "$TARGET_REL" "$name" "$sha" "$size"
+      done
+      echo ""
+      echo "  ]"
+      echo "}"
+    } > "$out"
+    "$USIGN" -S -m "$out" -s "$OTA_KEY" -x "$out.sig"
+    echo "  $out (+ .sig)"
+  }
+
+  # 共享清单：单机型列全量（老客户端兼容）；多机型留空（老客户端安全失败）
+  if [ "${#_devs[@]}" -eq 0 ] || { [ "${#_devs[@]}" -eq 1 ] && [ "$_untagged" = 0 ]; }; then
+    emit_manifest "$shared" "${_imgs[@]##*/}"
+  else
+    emit_manifest "$shared"
+  fi
+
+  # per-device 清单：每个机型只列自己的 sysupgrade 镜像
+  for dev in "${_devs[@]}"; do
+    mapfile -t _names < <(printf '%s' "${_dev_images[$dev]}")
+    emit_manifest "$dev_dir/$dev.json" "${_names[@]}"
+  done
+  if [ "${#_devs[@]}" -gt 0 ]; then
+    echo "  per-device: ${_devs[*]}"
+  else
+    echo "  per-device: 无（该目标镜像不带机型 token）"
+  fi
+  [ "$_untagged" = 0 ] || echo "  提示：存在未按 immortalwrt-<board>-<sub>-<device>- 命名的 sysupgrade 镜像，已按保守策略处理"
 fi
 
 # 签名一致性校验（默认开）
