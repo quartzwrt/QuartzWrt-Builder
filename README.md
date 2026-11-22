@@ -51,7 +51,7 @@ gh workflow run build.yml
 
 ## 构建锁定状态（docs/TDD.md §4）
 
-- ✅ 基座锁定：`config/base.env`（ImmortalWrt 25.12 @ ce35a9e4）。
+- ✅ 基座锁定：`config/base.env`（ImmortalWrt 25.12 @ 3682a14d）。
 - ✅ 三 Feed 锁定：`config/feeds.conf.extra` 已从 `;main` 改为 commit SHA（quartz/thirdparty/themes）；升级时更新 SHA 并触发全量 CI 验证。
 - ✅ 第三方包校验和：`PKG_MIRROR_HASH` 已回填（thirdparty feed）。
 - ✅ apk 签名与 OTA（WP-9，2026-10-14）：稳定 EC 签名密钥（Secrets → 构建注入）+ 公钥随
@@ -139,7 +139,7 @@ gh workflow run build.yml -f device=erya_fnet-3399
 ```bash
 git clone https://github.com/immortalwrt/immortalwrt.git --branch openwrt-25.12
 cd immortalwrt
-git checkout ce35a9e4ef1b87fbbc2146036ce6693e4242861a
+git checkout 3682a14dd5ec6382af65d7e72b5b415b5f3173a8
 cp feeds.conf.default feeds.conf
 cat /path/to/QuartzWrt-Builder/config/feeds.conf.extra >> feeds.conf
 ./scripts/feeds update -a

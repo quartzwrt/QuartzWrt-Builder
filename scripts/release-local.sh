@@ -11,7 +11,7 @@
 #
 # 用法:
 #   scripts/release-local.sh --tag v0.1.0 [--build] [--device erya_fnet-3399]
-#                            [--also-device <名>]   # 额外带上另一设备的镜像/manifest（同构建树内已有产物）
+#                            [--also-device <名>]   # 额外设备（可重复；同构建树内已有产物）
 #                            [--publish-feed [--rsync user@nas:/path/quartz-feed]]
 #                            [--draft] [--notes FILE] [--no-feed-tarball] [--dry-run]
 #
@@ -41,7 +41,7 @@ DRAFT=""
 NOTES_FILE=""
 FEED_TARBALL=1
 DRY_RUN=0
-ALSO_DEVICE=""
+ALSO_DEVICES=()
 EXTRA_BINS=()
 
 while [ $# -gt 0 ]; do
@@ -55,7 +55,7 @@ while [ $# -gt 0 ]; do
     --notes) NOTES_FILE="$2"; shift 2 ;;
     --no-feed-tarball) FEED_TARBALL=0; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --also-device) ALSO_DEVICE="$2"; shift 2 ;;
+    --also-device) ALSO_DEVICES+=("$2"); shift 2 ;;
     --base-dir) BASE_DIR="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（用法见 --help）" >&2; exit 1 ;;
@@ -98,14 +98,18 @@ fi
 step "签名校验（未通过不发布）"
 bash "$BUILDER_DIR/scripts/verify-signing.sh" "$BASE_DIR" --arch "${ARCH_PKGS:-x86_64}" --targets "$BOARD/$SUB"
 
-# 附带设备产物（同一构建树内已构建的其它目标）
-if [ -n "$ALSO_DEVICE" ]; then
+# 附带设备产物（同一构建树内已构建的其它目标；可多个）
+for _dev in ${ALSO_DEVICES[@]+"${ALSO_DEVICES[@]}"}; do
   # shellcheck disable=SC1090
-  set -a; . "$BUILDER_DIR/devices/$ALSO_DEVICE/device.env"; set +a
+  (
+    set -a; . "$BUILDER_DIR/devices/$_dev/device.env"; set +a
+    echo "附带设备产物：$_dev → $DEVICE_TARGET/$DEVICE_SUBTARGET"
+  )
+  # shellcheck disable=SC1090
+  set -a; . "$BUILDER_DIR/devices/$_dev/device.env"; set +a
   EXTRA_BINS+=("$BASE_DIR/bin/targets/$DEVICE_TARGET/$DEVICE_SUBTARGET")
-  echo "附带设备产物：$ALSO_DEVICE → $DEVICE_TARGET/$DEVICE_SUBTARGET"
   set +a
-fi
+done
 
 # 3. 发布目录：产物（标准版）+ feed + OTA 清单
 OUT="$BUILDER_DIR/../release-out/$TAG"
@@ -135,6 +139,13 @@ else
   echo "  注：未找到产物目录 $ARTIFACTS_BASE —— 回退从构建树收集" >&2
   find "$TARGET_BIN" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' \) -exec cp {} "$OUT/" \;
 fi
+
+# ②b 附带设备：镜像/manifest 直接取自各自目标产物目录（同构建树内）
+for bin in ${EXTRA_BINS[@]+"${EXTRA_BINS[@]}"}; do
+  [ -d "$bin" ] || continue
+  find "$bin" -maxdepth 1 -type f \( -name '*.img.gz' -o -name '*sysupgrade*.bin' -o -name '*.manifest' \) \
+    -exec cp -f {} "$OUT/" \;
+done
 if [ "$DO_PUBLISH_FEED" = 1 ] || [ "$FEED_TARBALL" = 1 ]; then
   # 发布对 = **本次构建目标**（设备模式=设备目标，否则 x86/64）。默认双架构对会把
   # **未重建目标**的 OTA 清单盖上本次 build id（清单报新版本而镜像内仍是旧 id →
