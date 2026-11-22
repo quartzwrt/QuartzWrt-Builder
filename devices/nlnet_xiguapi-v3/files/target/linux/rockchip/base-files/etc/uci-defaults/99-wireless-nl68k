@@ -1,0 +1,29 @@
+#!/bin/sh
+# Insert the wireless default helper at the top of /etc/rc.local.
+#
+# /etc/uci-defaults is NOT preserved by sysupgrade, so this runs on the first
+# boot after every flash — even when sysupgrade restores the old /etc/rc.local
+# from the config backup. The helper itself lives in /usr/sbin (also not
+# preserved), so the new image always provides the current logic.
+#
+# Important: the base /etc/rc.local ends with "exit 0". Appending the helper
+# call after that line never runs (r5 hit this). Prepend it instead, and drop
+# any previous marker/helper line (including one appended after exit 0).
+
+MARK="# quartz-wireless-nl68k"
+RC=/etc/rc.local
+TMP=/tmp/rc.local.$$
+
+[ -f "$RC" ] || printf '#!/bin/sh\n\nexit 0\n' > "$RC"
+
+# Drop our previous marker/helper line, keep the user's other lines.
+grep -v -e "$MARK" -e '\[ -x /usr/sbin/wireless-nl68k \]' "$RC" > "$TMP"
+
+# Prepend the helper call so it runs before the base exit 0.
+{
+	printf '%s\n[ -x /usr/sbin/wireless-nl68k ] && /usr/sbin/wireless-nl68k\n' "$MARK"
+	cat "$TMP"
+} > "$RC"
+
+rm -f "$TMP"
+exit 0

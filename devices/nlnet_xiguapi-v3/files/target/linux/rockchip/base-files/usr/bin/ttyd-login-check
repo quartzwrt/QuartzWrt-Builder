@@ -1,0 +1,16 @@
+#!/bin/sh
+# QuartzWrt: only expose the ttyd login prompt after the root password is set.
+# ttyd binds the LAN interface and runs /bin/login; an empty root password
+# would otherwise be a passwordless root shell.
+
+root_hash="$(awk -F: '$1 == "root" { print $2; exit }' /etc/shadow 2>/dev/null)"
+case "$root_hash" in
+	''|'!'*|'*'*)
+		printf '\nRoot password is not set.\n'
+		printf 'Set it in LuCI (System -> Administration) or run passwd first.\n\n'
+		sleep 5
+		exit 1
+		;;
+esac
+
+exec /bin/login

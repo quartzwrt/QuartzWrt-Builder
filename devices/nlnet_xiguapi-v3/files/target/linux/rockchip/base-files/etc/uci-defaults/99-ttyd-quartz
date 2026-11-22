@@ -1,0 +1,14 @@
+#!/bin/sh
+# QuartzWrt: default hardening for the LuCI web terminal (luci-app-ttyd).
+[ -f /etc/config/ttyd ] || exit 0
+
+uci -q batch <<-UCI
+	set ttyd.@ttyd[0].enable='1'
+	set ttyd.@ttyd[0].interface='@lan'
+	set ttyd.@ttyd[0].command='/usr/bin/ttyd-login-check'
+	set ttyd.@ttyd[0].check_origin='1'
+	set ttyd.@ttyd[0].max_clients='2'
+	set ttyd.@ttyd[0].terminal_type='xterm-256color'
+	commit ttyd
+UCI
+exit 0

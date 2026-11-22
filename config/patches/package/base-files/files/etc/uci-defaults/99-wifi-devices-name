@@ -1,0 +1,25 @@
+#!/bin/sh
+# Show a real NIC model in iwinfo/LuCI for the QCNFA765/QCA2066
+# (PCI 17cb:1103, subsystem 17cb:3374) instead of "Generic MAC80211".
+#
+# Generic layer: any device with this card gets the label. The PCI check uses
+# /sys/bus/pci so it works before the ath11k phy is created. wifi_devices.json
+# lives on the overlay; sysupgrade gets a fresh copy and this runs again.
+
+F=/usr/share/wifi_devices.json
+[ -f "$F" ] || exit 0
+
+found=0
+for d in /sys/bus/pci/devices/*; do
+	[ -f "$d/vendor" ] || continue
+	if [ "$(cat "$d/vendor")" = "0x17cb" ] && [ "$(cat "$d/device")" = "0x1103" ]; then
+		found=1
+		break
+	fi
+done
+[ "$found" = 1 ] || exit 0
+
+grep -q '0x1103.*0x3374' "$F" && exit 0
+
+sed -i '/"pci": \[/a\        [ "0x17cb", "0x1103", "0x17cb", "0x3374", 0, 0, "Qualcomm", "QCNFA765" ],' "$F"
+exit 0

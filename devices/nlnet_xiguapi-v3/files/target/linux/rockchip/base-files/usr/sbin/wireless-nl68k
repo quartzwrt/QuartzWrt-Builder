@@ -1,0 +1,47 @@
+#!/bin/sh
+# QuartzWrt NLnet XiGuaPi V3: first-boot wireless defaults.
+#
+# Called from /etc/rc.local (a line appended by
+# /etc/uci-defaults/99-wireless-nl68k on the first boot after flashing).
+# /etc/init.d/done (START=95) runs rc.local after network and wifi start, so
+# /etc/config/wireless exists here.
+#
+# wifi-scripts generates country='00' and band='6g' for the QCNFA765/QCA2066
+# card; hostapd rejects country_code '00' and the AP never comes up. CN does
+# not allow 6 GHz AP either.
+#
+# Only fix the unconfigured default (00 / missing). A user-selected country
+# (e.g. US for 6 GHz) is left alone. After the first fix country is CN, so
+# subsequent boots skip.
+
+[ -f /etc/config/wireless ] || exit 0
+
+case "$(uci -q get wireless.radio0.country)" in
+	00|"") ;;
+	*) exit 0 ;;
+esac
+
+logger -t wireless-nl68k "fixing default wireless country/band"
+uci set wireless.radio0.country='CN'
+
+# Prefer 5 GHz when the card supports it (Band 2). Keep 2.4-only cards
+# untouched. 6 GHz needs a country that permits it (e.g. US) and a
+# 6 GHz client.
+if iw phy phy0 info 2>/dev/null | grep -q "Band 2:"; then
+	uci set wireless.radio0.band='5g'
+	uci set wireless.radio0.channel='36'
+	if iw phy phy0 info 2>/dev/null | grep -q "HE Iftypes: AP"; then
+		uci set wireless.radio0.htmode='HE80'
+	else
+		uci set wireless.radio0.htmode='VHT80'
+	fi
+fi
+
+uci commit wireless
+# A plain `wifi reload` at first boot leaves hostapd with the old channel
+# state ("IEEE 802.11 Hardware does not support configured channel").
+# A full down/up resets the phy and brings the AP up on ch36/HE80.
+wifi down
+sleep 2
+wifi up
+exit 0
