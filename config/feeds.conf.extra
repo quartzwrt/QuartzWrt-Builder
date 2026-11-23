@@ -14,8 +14,8 @@
 # 2026-11-20：quartz → c145bc7（**WP-13 luci-app-usb-tether 手机 USB 共享上网**：安卓/iPhone USB 网卡作 DHCP WAN 备援，仅入软件源；VM e2e 29/29 + detect 误判修复；吸收 15602f7/8f6b5a3 收口轮提交）
 # 2026-11-21：quartz → 5d124e1（WP-13 真机反馈修复：保存处理器在 luci.js View 基类而非 form.Map.prototype——原 override 崩成永久转圈；基座 set 即落盘无 apply 语义，helper 内联 + 状态页自愈兜底；VM e2e 33/33）
 # 2026-11-22：quartz → 26a9564（WP-14 三层菜单 + Wi-Fi 家族 meta + quartz-docker + dashboard 主题门控）；themes → 910ae07（**第三个自有 feed：QuartzWrt-Themes 首轮**——Vantage v1.1.1 全收 / 7Dollar v1.0.18 / Aurora 1.4.3 + aurora-config v1.2.5）
-# 2026-11-22：thirdparty → a399cb2（qmodem 合入上游 550ea99：modem_scan/flock/SIP/uplink；端口规则回退 1.2；QMODEM_RELEASE 未 bump）
+# 2026-11-23：quartz → cecb54b（WP-16 小屏）；thirdparty → 1929b21（qmodem Fibocom 运营商/带宽/Network Type/ICCID 修复）
 # 2026-11-22：thirdparty → 4012493（qmodem fork quartz3：MH5000-82M NCM 端口规则 include 数据接口 + log2sys debug；qmi_wwan_q MTU 修复回填）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^abaed2de9221df8de08a14fb4591867eb4449973
-src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^a399cb2779ef921615ef468ea83ed3d41dc6dc8d
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^cecb54be7285621421de1abd0af478ca96366f4b
+src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^1929b2108767a783fd0d206bf83db964e9818029
 src-git themes https://github.com/quartzwrt/QuartzWrt-Themes.git^4028440184a936132af86376d3095dacdec10b1a
