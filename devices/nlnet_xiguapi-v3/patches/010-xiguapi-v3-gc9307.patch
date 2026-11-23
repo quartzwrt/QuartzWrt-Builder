@@ -1,0 +1,39 @@
+diff --git a/target/linux/rockchip/files/arch/arm64/boot/dts/rockchip/rk3568-xiguapi-v3.dts b/target/linux/rockchip/files/arch/arm64/boot/dts/rockchip/rk3568-xiguapi-v3.dts
+index 1c7b44ea30..a3ab4193a8 100644
+--- a/target/linux/rockchip/files/arch/arm64/boot/dts/rockchip/rk3568-xiguapi-v3.dts
++++ b/target/linux/rockchip/files/arch/arm64/boot/dts/rockchip/rk3568-xiguapi-v3.dts
+@@ -78,7 +78,7 @@
+ 			function = LED_FUNCTION_BACKLIGHT;
+ 			pwms = <&pwm14 0 1000000 0>;
+ 			max-brightness = <255>;
+-			linux,default-trigger = "default-on";
++			default-state = "off";
+ 		};
+ 	};
+ 
+@@ -729,8 +729,11 @@
+ 		pinctrl-0 = <&spi3_display_dc_pin &display_reset_pin>;
+ 		dc-gpios = <&gpio4 RK_PC5 GPIO_ACTIVE_HIGH>;
+ 		reset-gpios = <&gpio4 RK_PC4 GPIO_ACTIVE_LOW>;
+-		backlight = <&backlight>;
++		spi-max-frequency = <24000000>;
++		width = <172>;
++		height = <320>;
+ 		buswidth = <8>;
++		fps = <10>;
+ 		rotate = <270>;
+ 	};
+ };
+diff --git a/target/linux/rockchip/image/default.bootscript b/target/linux/rockchip/image/default.bootscript
+index 036d5e6fe1..c557a9cb68 100644
+--- a/target/linux/rockchip/image/default.bootscript
++++ b/target/linux/rockchip/image/default.bootscript
+@@ -16,7 +16,7 @@ elif test $soc = 'rk3588'; then
+ 	serial_addr=',0xfeb50000'; serial_port='ttyS2';
+ fi
+ 
+-setenv bootargs "coherent_pool=2M console=tty1 console=${serial_port},1500000 earlycon=uart8250,mmio32${serial_addr} root=PARTUUID=${uuid} rw rootwait";
++setenv bootargs "coherent_pool=2M fbcon=map:1 console=${serial_port},1500000 earlycon=uart8250,mmio32${serial_addr} root=PARTUUID=${uuid} rw rootwait";
+ 
+ load ${devtype} ${devnum}:1 ${kernel_addr_r} kernel.img
+ 

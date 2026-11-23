@@ -1,0 +1,28 @@
+diff -Naur a/drivers/staging/fbtft/Kconfig b/drivers/staging/fbtft/Kconfig
+--- a/drivers/staging/fbtft/Kconfig	2026-11-23 03:07:46.882132894 +0800
++++ b/drivers/staging/fbtft/Kconfig	2026-11-23 03:07:54.244520352 +0800
+@@ -19,6 +19,13 @@
+ 	help
+ 	  Generic Framebuffer support for BD663474
+ 
++config FB_TFT_GC9307
++	tristate "FB driver for the GC9307 LCD Controller"
++	depends on FB_TFT
++	help
++	  Framebuffer support for the GalaxyCore GC9307 SPI LCD controller,
++	  as used by the 1.47" 172x320 panel on the NLnet XiGuaPi V3.
++
+ config FB_TFT_HX8340BN
+ 	tristate "FB driver for the HX8340BN LCD Controller"
+ 	depends on FB_TFT
+diff -Naur a/drivers/staging/fbtft/Makefile b/drivers/staging/fbtft/Makefile
+--- a/drivers/staging/fbtft/Makefile	2026-11-23 03:07:46.882221329 +0800
++++ b/drivers/staging/fbtft/Makefile	2026-11-23 03:07:54.244689098 +0800
+@@ -6,6 +6,7 @@
+ # drivers
+ obj-$(CONFIG_FB_TFT_AGM1264K_FL) += fb_agm1264k-fl.o
+ obj-$(CONFIG_FB_TFT_BD663474)    += fb_bd663474.o
++obj-$(CONFIG_FB_TFT_GC9307)      += fb_gc9307.o
+ obj-$(CONFIG_FB_TFT_HX8340BN)    += fb_hx8340bn.o
+ obj-$(CONFIG_FB_TFT_HX8347D)     += fb_hx8347d.o
+ obj-$(CONFIG_FB_TFT_HX8353D)     += fb_hx8353d.o

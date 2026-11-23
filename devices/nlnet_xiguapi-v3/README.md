@@ -14,7 +14,7 @@ QuartzWrt 设备层。目标：`rockchip/armv8`，设备 ID `nlnet_xiguapi-v3`�
   - 1× M.2 B Key（USB 5G，RM500Q 尺寸 52×30）
   - 1× M.2 E Key（PCIe WiFi + USB2 蓝牙，22×30）
 - 其他：USB-A 3.0 OTG、HDMI 2.0、TF、SIM
-- 屏幕：GC9307 SPI 320×240（FPC；**本版不启用**）
+- 屏幕：GC9307 SPI **172×320**（横屏 **320×172**，1.47"；FPC；v1.1 起启用）
 - 风扇：5V PWM（MX1.25 4pin；DTS 已带温控曲线，内核 thermal 自动调速）
 - 按键/LED：ADC 复位键；`blue:status`（sys）、`blue:wan`（net）；第三 LED 未映射
 - 调试串口：UART2，`1500000n8`
@@ -51,7 +51,19 @@ CONFIG_KERNEL_RELAY=y
   wifi-scripts / wireless-regdb；quartz-defaults、ttyd、btrfs 等。
 
 **不预装**：fancontrol（内核 thermal 已自动调速）、蓝牙（kmod-btusb/固件）、
-屏幕驱动、docker（软件源 `quartz-docker`）、usb-tether（软件源按需安装）。
+docker（软件源 `quartz-docker`）、usb-tether（软件源按需安装）。
+
+### 2.1 小屏（WP-16，2026-11-23）
+
+- **驱动**：设备层 fbtft `fb_gc9307`（compatible `galaxycore,gc9307`），
+  `kmod-fb-tft-gc9307`；DTS `spi-max-frequency=24MHz`、`width/height=172/320`、
+  `rotate=270`（→ 320×172）。
+- **背光**：`blue:backlight`（PWM14）改为 `default-state="off"`，由
+  `quartz-screen` 启动后点亮；`/etc/config/quartz-screen` 控制亮度/夜间。
+- **用户态**：预装 `quartz-screen` + `luci-app-quartz-screen`（系统 → 屏幕显示）。
+- **fbcon**：bootargs 去掉 `console=tty1`，避免内核日志画到小屏；串口控制台保留。
+- **校准**：`quartz-screen test` 显示 8 秒色条/灰阶/方向/屏参；方向不对改
+  驱动 `set_var` 的 MADCTL 或 DTS `rotate`，颜色不对在 DTS 加 `bgr`。
 
 ### 3. ttyd 登录加固
 
@@ -179,14 +191,22 @@ uci get ttyd.@ttyd[0].command        # /usr/bin/ttyd-login-check
 ```
 
 - 风扇：本机未装，跳过；DTS 温控曲线已启用（若装风扇，内核 thermal 自动调速）。
-- 屏幕：本版不启用，不亮是预期。
+- 屏幕：`dmesg | grep -i gc9307` 应看到 fbtft probe；`ls -l /dev/fb0`；
+  `cat /sys/class/graphics/fb0/name` = `fb_gc9307`；屏应显示概览页（暗色）。
+  运行 `quartz-screen test` 可看 8 秒测试图案（方向/颜色/SPI 校准）。
 - LED：`blue:status`（sys）、`blue:wan`（net）；第三 LED 未映射。
 - 5G PCIe：`dmesg | grep mhi`、`/dev/mhi_QMI0`；QModem 页应识别模组。
 
 ## 已知限制
 
-- GC9307 SPI 屏未启用：基座无对应 kmod；后续可加 `kmod-fb-tft-st7789v` +
-  DTS `compatible` 补丁 + GC9307 初始化补丁。
+- GC9307 驱动为设备层 fbtft（`kmod-fb-tft-gc9307`），不在基座内；
+  方向/颜色/SPI 速率以真机测试图案为准（当前 24MHz；真机校准：MADCTL 0xE8、ROW_OFFSET 34、fbcon=map:1）。
+  背光默认 `default-state="off"`，由 `quartz-screen` 启动后点亮；若守护未启动则屏黑。
+- 调试顺序：`dmesg | grep -i gc9307` → `ls -l /dev/fb0` →
+  `cat /sys/class/graphics/fb0/name`（应为 `fb_gc9307`）→
+  `quartz-screen status` → `quartz-screen test` → LuCI 系统 → 屏幕显示。
+  花屏先降 `spi-max-frequency` 到 12MHz；方向/颜色改驱动 `set_var` 的
+  MADCTL（当前 `MY|MX|MV|BGR` 0xE8）与 `ROW_OFFSET`（当前 34）。
 - 未预装蓝牙（按用户选择）；MT7922/MT7921 的 BT 需要 `kmod-btusb` +
   `mt7921bt-firmware`/`mt7922bt-firmware`。
 - 未预装 fancontrol；若后续要用户态曲线，需处理与内核 thermal cooling-maps
