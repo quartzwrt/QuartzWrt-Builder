@@ -17,6 +17,7 @@
 # 2026-11-23：quartz → f99728e9379276344cc61158563d97c0b1cacd99（DynamicList 删除区/页面 Flag/uci.apply/screen r7）；thirdparty → 1929b21（qmodem Fibocom 修复）
 # 2026-11-23：quartz → 6cab8ff1e37aea81ba80ce988a96a3ef99e70ec6（screen r9：Byte/s→bit/s 速率单位修复 + bandix 差分速率；app r4）
 # 2026-11-22：thirdparty → 4012493（qmodem fork quartz3：MH5000-82M NCM 端口规则 include 数据接口 + log2sys debug；qmi_wwan_q MTU 修复回填）
-src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^6cab8ff1e37aea81ba80ce988a96a3ef99e70ec6
+# 2026-11-26：quartz → 8188eca88410320a46bc1d42e623af3c96f3262c（WP-14 dashboard 主题门控修复：procd 触发器 run_script 参数拆分，切主题后菜单缓存正确刷新；真机 vantage↔quartz 双向验证）
+src-git quartz https://github.com/quartzwrt/QuartzWrt-Packages.git^8188eca88410320a46bc1d42e623af3c96f3262c
 src-git thirdparty https://github.com/quartzwrt/QuartzWrt-ThirdParty.git^1929b2108767a783fd0d206bf83db964e9818029
 src-git themes https://github.com/quartzwrt/QuartzWrt-Themes.git^4028440184a936132af86376d3095dacdec10b1a
