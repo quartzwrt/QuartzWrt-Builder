@@ -10,3 +10,14 @@ package/feeds/themes/luci-app-vantage-aps
 package/feeds/themes/7dollar
 package/feeds/themes/luci-theme-aurora
 package/feeds/themes/luci-app-aurora-config
+
+# ── thirdparty 按需安装包（WP-7；不预装）──────────────────────────────────────
+# 2026-11-27：补登此清单——此前这些包只靠本地构建树 bin/packages 的残留 apk 进入
+# 发布源，干净 CI 构建会缺失；显式登记后 feed 发布结果可复现。
+package/feeds/thirdparty/lucky
+package/feeds/thirdparty/luci-app-lucky
+package/feeds/thirdparty/luci-app-ttl
+package/feeds/thirdparty/easytier
+package/feeds/thirdparty/luci-app-easytier
+package/feeds/thirdparty/homebox
+package/feeds/thirdparty/luci-app-homebox
